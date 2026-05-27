@@ -1,0 +1,48 @@
+# Visual Studio / build outputs
+.vs/
+x64/
+Debug/
+Release/
+build/
+out/
+bin/
+obj/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.ipch
+*.aps
+*.pch
+*.pdb
+*.ilk
+*.obj
+*.exp
+*.lib
+*.dll
+*.exe
+*.log
+
+# Project-local generated outputs
+MyVtkNew/x64/
+导出/
+
+# Large third-party binary dependencies
+VTK/
+VTK-9.4.1/
+DCMTK/
+
+# Medical image / raw data
+Data/
+*.raw
+*.dcm
+*.dicom
+*.ima
+*.mhd
+*.mha
+*.nii
+*.nii.gz
+*.nrrd
+
+# Local agent / IDE state
+.gemini/

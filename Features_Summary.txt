@@ -1,0 +1,33 @@
+基于当前项目代码的分析，该三维/医疗看图系统主要实现了以下核心功能：
+
+1. **读取和显示功能**
+- 支持读取单张 DICOM 影像
+- 支持读取 DICOM 序列（扫描整个目录加载三维体征数据）
+- 支持读取三维 RAW 格式原始数据
+- 提供二维切片滚动浏览（分别沿对应轴状面 Axial、冠状面 Coronal、矢状面 Sagittal 进行滚动切割显示）
+
+2. **多平面重建 (MPR - Multi-Planar Reconstruction)**
+- 十字光标（Reslicecursor）交互式切面定位
+- 三视图切换以及切片重建 (Axial, Coronal, Sagittal)
+- 支持厚层重建（Thick Slice）模式
+- 支持最大密度投影 (MIP)、最小密度投影 (MinIP) 和平均密度投影 (MeanIP)
+
+3. **三维渲染功能 (3D Rendering)**
+- 提供基于阈值的表面提取重建 / 面绘制 (Surface Rendering, 使用 Marching Cubes 算法等)
+- 提供基于射线投射的体绘制渲染 (Volume Rendering)
+- 内置两种预设的体渲染模式：
+  (a) 骨骼体绘制 (Bone Volume Rendering)
+  (b) 血管体绘制 (Blood Vessel Volume Rendering)
+- 带有参数滑块，可动态调节体绘制的透明度或映射参数
+
+4. **影像交互与测量功能**
+- 窗宽窗位调节 (Window / Level 调节及其数值在界面上更新显示)
+- 距离测量功能 (Distance Measurement，可添加在特定平面的视图上)
+- 角度测量功能 (Angle Measurement，可添加在特定平面的视图上)
+- 基本的视图交互操作和重置归位功能 (Reset Views)
+
+5. **格式转换与数据存储**
+- 能将读取或处理后的 RAW 三维数据转换为 DICOM 序列格式保存到磁盘
+- 支持将 PolyData 模型保存为特定 RAW 文件格式
+
+所有上述提取出的功能特性已经通过注释的形式追加到了头文件 `MyVtkNew.h` 的函数声明后面。

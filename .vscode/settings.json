@@ -1,0 +1,5 @@
+{
+    "files.encoding": "gbk",
+    "files.autoGuessEncoding": true,
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+}
