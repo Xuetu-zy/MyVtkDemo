@@ -4,6 +4,7 @@
 #include "myvtkresliceimageviewermeasurements.h"
 #include "ui_MyVtkNew.h"
 
+#include <QPoint>
 #include <QString>
 #include <QVTKOpenGLNativeWidget.h>
 #include <QVector>
@@ -72,7 +73,7 @@ public slots:
     void on_pushButton_clicked();                         // 选择 DICOM 目录主函数 (主要的数据入口)
     void on_pushButtonConvertRawSlicesToDicom_clicked();  // 格式转换功能
     void on_pushButtonForAddAngle_clicked();              // 测角按钮触发
-    void on_pushButtonAddDistance_clicked();              // 测角按钮触发
+    void on_pushButtonAddDistance_clicked();              // 测距按钮触发
 
     // 滚动条交互
     void UpdateSliceCenter(int viewIndex, int value);
@@ -95,14 +96,17 @@ public slots:
     void SetBlendModeToMinIP();
     void SetBlendModeToMeanIP();
     void ResetViews();
-    void AddDistanceMeasurementToView();
+    void AddDistanceMeasurementToView();                  // 测距按钮统一入口（内部判定目标视图）
 
 public:
     // 更新每个2D视图右下角的窗宽窗位文本
     void UpdateCornerAnnotations();
     void Render();
     int DetermineTargetViewIndex() const;
+    int HitTest2DViewByGlobalPos(const QPoint& globalPos) const;
+    int GetViewIndexFromObject(const QObject* object) const;
     int GetViewIndexFromWidget(const QWidget* widget) const;
+    QWidget* GetViewWidgetByIndex(int viewIndex) const;
     void MarkViewInteracted(int viewIndex);
     void MaybeCancelActiveMeasurementsForView(int sourceViewIndex);
     void MaybeCancelDistanceMeasurementForView(int sourceViewIndex);
@@ -113,6 +117,13 @@ public:
     void AddAngleToView(int i);
 
 private:
+    enum class PendingMeasurementTool
+    {
+        None,
+        Distance,
+        Angle
+    };
+
     Ui::MyVtkNew* ui;
 
     // --- 核心可视化组件 ---
@@ -146,6 +157,7 @@ private:
     int activeAngleViewIndex = -1;
     bool isAngleArmed = false;
     unsigned long activeAngleObserverTag = 0;
+    PendingMeasurementTool pendingMeasurementTool = PendingMeasurementTool::None;
     int lastInteractedViewIndex = 2;
 
     // 3D 视图

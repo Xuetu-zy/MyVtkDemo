@@ -352,13 +352,12 @@ MyVtkNew::MyVtkNew(QWidget* parent) : QMainWindow(parent)
 
     qDebug() << "connect resetButton ok =" << static_cast<bool>(resetConn);
 
-    ui->widgetSagittal->installEventFilter(this);
-    ui->widgetCoronal->installEventFilter(this);
-    ui->widgetAxial->installEventFilter(this);
+    qApp->installEventFilter(this);
 }
 
 MyVtkNew::~MyVtkNew()
 {
+    qApp->removeEventFilter(this);
     delete ui;
 }
 
@@ -1123,6 +1122,7 @@ void MyVtkNew::SetBlendModeToMeanIP()
 
 void MyVtkNew::ResetViews()
 {
+    // Reset 先清理测量态，避免保留未完成 widget 导致 RCW 事件恢复异常。
     CancelActiveDistanceMeasurement();
     CancelActiveAngleMeasurement();
 
@@ -1144,14 +1144,17 @@ void MyVtkNew::ResetViews()
 
     if (ui->resliceModeCheckBox->isChecked())
     {
+        // Oblique: 以 ResliceCursor plane 为真值源，避免用 sliceIndex 覆盖旋转平面。
         SyncPlaneWidgetsFromResliceCursorPlanes();
         ResetObliqueViewCameras();
     }
     else
     {
+        // AxisAligned: 切片回中位并重置 2D 相机。
         SyncPlaneWidgetsFromResliceCursorPlanes();
         Reset2DViewCameras();
     }
+    // 修复“2D 切片恢复但滚动条未恢复”：统一在 Reset 末尾同步 slider 值。
     SyncSliceSlidersFromViews();
 
     if (ren)
@@ -1240,6 +1243,51 @@ void MyVtkNew::Reset2DViewCameras()
 
 void MyVtkNew::ResetObliqueViewCameras()
 {
+    auto enforceCameraOrientation = [this](int viewIndex) {
+        if (!riw[viewIndex] || !riw[viewIndex]->GetRenderer())
+        {
+            return;
+        }
+        vtkCamera* camera = riw[viewIndex]->GetRenderer()->GetActiveCamera();
+        if (!camera)
+        {
+            return;
+        }
+
+        double focalPoint[3] = {0.0, 0.0, 0.0};
+        double position[3] = {0.0, 0.0, 1.0};
+        camera->GetFocalPoint(focalPoint);
+        camera->GetPosition(position);
+
+        double distance = std::sqrt((position[0] - focalPoint[0]) * (position[0] - focalPoint[0]) +
+                                    (position[1] - focalPoint[1]) * (position[1] - focalPoint[1]) +
+                                    (position[2] - focalPoint[2]) * (position[2] - focalPoint[2]));
+        if (distance < 1e-6)
+        {
+            distance = 1.0;
+        }
+
+        switch (riw[viewIndex]->GetSliceOrientation())
+        {
+            case vtkImageViewer2::SLICE_ORIENTATION_XY:
+                camera->SetPosition(focalPoint[0], focalPoint[1], focalPoint[2] + distance);
+                camera->SetViewUp(0.0, 1.0, 0.0);
+                break;
+            case vtkImageViewer2::SLICE_ORIENTATION_XZ:
+                camera->SetPosition(focalPoint[0], focalPoint[1] - distance, focalPoint[2]);
+                camera->SetViewUp(0.0, 0.0, 1.0);
+                break;
+            case vtkImageViewer2::SLICE_ORIENTATION_YZ:
+                camera->SetPosition(focalPoint[0] + distance, focalPoint[1], focalPoint[2]);
+                camera->SetViewUp(0.0, 0.0, 1.0);
+                break;
+            default:
+                break;
+        }
+        camera->OrthogonalizeViewUp();
+        camera->ParallelProjectionOn();
+    };
+
     for (int i = 0; i < 3; i++)
     {
         if (!riw[i] || !riw[i]->GetRenderer() || !riw[i]->GetResliceCursorWidget() ||
@@ -1254,6 +1302,9 @@ void MyVtkNew::ResetObliqueViewCameras()
             rep->BuildRepresentation();
         }
         riw[i]->GetRenderer()->ResetCamera();
+        // 关键修复：ResetCamera 可能改写 ViewUp，导致 Axial 视觉上下翻转。
+        // 这里按当前切片方向强制恢复标准朝向，保证 Oblique + Reset 后方向稳定。
+        enforceCameraOrientation(i);
         riw[i]->GetRenderer()->ResetCameraClippingRange();
         riw[i]->Render();
     }
@@ -1357,17 +1408,28 @@ int MyVtkNew::GetViewIndexFromWidget(const QWidget* widget) const
     return -1;
 }
 
-void MyVtkNew::MarkViewInteracted(int viewIndex)
+int MyVtkNew::GetViewIndexFromObject(const QObject* object) const
 {
-    if (viewIndex >= 0 && viewIndex < 3)
+    for (const QObject* o = object; o; o = o->parent())
     {
-        lastInteractedViewIndex = viewIndex;
+        const QWidget* w = qobject_cast<const QWidget*>(o);
+        if (!w)
+        {
+            continue;
+        }
+        const int idx = GetViewIndexFromWidget(w);
+        if (idx >= 0)
+        {
+            return idx;
+        }
     }
+    return -1;
 }
 
-int MyVtkNew::DetermineTargetViewIndex() const
+int MyVtkNew::HitTest2DViewByGlobalPos(const QPoint& globalPos) const
 {
-    const QPoint globalPos = QCursor::pos();
+    // 点击命中判定要基于“鼠标全局坐标 -> 2D 视图矩形”，
+    // 不能依赖 eventFilter 的 watched 对象，否则在 qApp 全局过滤下会误判。
     if (ui->widgetSagittal &&
         ui->widgetSagittal->rect().contains(ui->widgetSagittal->mapFromGlobal(globalPos)))
     {
@@ -1378,11 +1440,58 @@ int MyVtkNew::DetermineTargetViewIndex() const
     {
         return 1;
     }
-    if (ui->widgetAxial && ui->widgetAxial->rect().contains(ui->widgetAxial->mapFromGlobal(globalPos)))
+    if (ui->widgetAxial &&
+        ui->widgetAxial->rect().contains(ui->widgetAxial->mapFromGlobal(globalPos)))
     {
         return 2;
     }
+    return -1;
+}
 
+QWidget* MyVtkNew::GetViewWidgetByIndex(int viewIndex) const
+{
+    switch (viewIndex)
+    {
+        case 0:
+            return ui->widgetSagittal;
+        case 1:
+            return ui->widgetCoronal;
+        case 2:
+            return ui->widgetAxial;
+        default:
+            return nullptr;
+    }
+}
+
+void MyVtkNew::MarkViewInteracted(int viewIndex)
+{
+    if (viewIndex >= 0 && viewIndex < 3)
+    {
+        lastInteractedViewIndex = viewIndex;
+    }
+}
+
+int MyVtkNew::DetermineTargetViewIndex() const
+{
+    // 1) 优先用全局鼠标位置命中 3 个主视图，避免 focus/underMouse 在 Qt+VTK 混合控件里误判。
+    const QPoint globalPos = QCursor::pos();
+    const int hitView = HitTest2DViewByGlobalPos(globalPos);
+    if (hitView >= 0)
+    {
+        return hitView;
+    }
+
+    // 2) 如果鼠标压根不在 3 个视图上（例如刚点击了工具按钮），尝试从鼠标下最上层控件沿父链回溯。
+    if (QWidget* widgetUnderCursor = QApplication::widgetAt(globalPos))
+    {
+        const int idx = GetViewIndexFromObject(widgetUnderCursor);
+        if (idx >= 0)
+        {
+            return idx;
+        }
+    }
+
+    // 3) 再回退到当前 focus 链，兼容键盘操作/程序切焦点。
     QWidget* focusWidget = QApplication::focusWidget();
     for (QWidget* w = focusWidget; w; w = w->parentWidget())
     {
@@ -1406,11 +1515,13 @@ int MyVtkNew::DetermineTargetViewIndex() const
         return 2;
     }
 
+    // 4) 最后使用最近一次真实交互视图，保证按钮点击后仍可立即在目标视图首轮落点。
     if (lastInteractedViewIndex >= 0 && lastInteractedViewIndex < 3)
     {
         return lastInteractedViewIndex;
     }
 
+    // 默认回退到 Axial。
     return 2;
 }
 
@@ -1423,12 +1534,14 @@ void MyVtkNew::MaybeCancelActiveMeasurementsForView(int sourceViewIndex)
 
 void MyVtkNew::AddDistanceMeasurementToView()
 {
+    // 统一按钮入口：只在这里判定目标视图，避免多入口导致状态机分叉。
     const int targetView = DetermineTargetViewIndex();
     AddDistanceMeasurementToView(targetView);
 }
 
 void MyVtkNew::CancelActiveDistanceMeasurement()
 {
+    // 统一取消收尾：无论当前是否真的有 active widget，都必须恢复十字线事件。
     if (!activeDistanceWidget)
     {
         isDistanceArmed = false;
@@ -1455,6 +1568,7 @@ void MyVtkNew::CancelActiveDistanceMeasurement()
 
 void MyVtkNew::MaybeCancelDistanceMeasurementForView(int sourceViewIndex)
 {
+    // 只取消“未完成且处于激活态”的测量，已完成历史标注保持可见。
     if (!isDistanceArmed || activeDistanceViewIndex < 0)
     {
         return;
@@ -1467,6 +1581,7 @@ void MyVtkNew::MaybeCancelDistanceMeasurementForView(int sourceViewIndex)
 
 void MyVtkNew::CancelActiveAngleMeasurement()
 {
+    // 与 Distance 保持对称：任何取消路径都恢复 RCW 事件并做平面同步。
     if (!activeAngleWidget)
     {
         isAngleArmed = false;
@@ -1474,6 +1589,7 @@ void MyVtkNew::CancelActiveAngleMeasurement()
         activeAngleObserverTag = 0;
         activeAngleCallbackCommand = nullptr;
         SetResliceCursorWidgetsProcessEvents(1);
+        SyncPlaneWidgetsFromResliceCursorPlanes();
         return;
     }
     if (activeAngleObserverTag != 0)
@@ -1492,6 +1608,7 @@ void MyVtkNew::CancelActiveAngleMeasurement()
 
 void MyVtkNew::MaybeCancelAngleMeasurementForView(int sourceViewIndex)
 {
+    // 仅当 Angle 正在未完成绘制时才响应跨视图取消。
     if (!isAngleArmed || activeAngleViewIndex < 0)
     {
         return;
@@ -1513,6 +1630,8 @@ void MyVtkNew::OnDistanceEndInteraction(vtkObject* caller, unsigned long eventId
         return;
     }
     self->MarkViewInteracted(self->activeDistanceViewIndex);
+    // Distance 进入 Manipulate 才代表两个端点都已落下，测量完成。
+    // 若仍是 Start/Define，说明用户还在首轮绘制中，不能提前退出 armed 状态。
     if (widget->GetWidgetState() != vtkDistanceWidget::Manipulate)
     {
         return;
@@ -1543,6 +1662,8 @@ void MyVtkNew::OnAngleEndInteraction(vtkObject* caller, unsigned long eventId, v
         return;
     }
     self->MarkViewInteracted(self->activeAngleViewIndex);
+    // Angle 同 Distance：只有进入 Manipulate（3 点已完成）才执行收尾。
+    // 否则保持激活，避免首轮点击后“需要再点一次按钮”。
     if (widget->GetWidgetState() != vtkAngleWidget::Manipulate)
     {
         return;
@@ -1565,13 +1686,14 @@ void MyVtkNew::OnAngleEndInteraction(vtkObject* caller, unsigned long eventId, v
 
 void MyVtkNew::AddDistanceMeasurementToView(int i)
 {
+    // 激活新测量前，先清掉另一工具的未完成状态，维持“单工具互斥激活”。
     if (i < 0 || i >= 3 || !riw[i])
         return;
     CancelActiveDistanceMeasurement();
     CancelActiveAngleMeasurement();
+    pendingMeasurementTool = PendingMeasurementTool::None;
     MarkViewInteracted(i);
     SetResliceCursorWidgetsProcessEvents(0);
-
     // 检查上一个标注是否已绘制完成。若未完成则删除它，防止冗余的空白标注
     if (!historyDistanceWidgets[i].isEmpty())
     {
@@ -1613,21 +1735,30 @@ void MyVtkNew::AddDistanceMeasurementToView(int i)
 
 void MyVtkNew::on_pushButtonForAddAngle_clicked()
 {
-    const int targetView = DetermineTargetViewIndex();
-    AddAngleToView(targetView);
+    // 按钮仅进入待激活态，不在此时绑定视图。
+    // 下一次 MouseButtonPress 落在 2D 视图时才真正创建 Angle widget。
+    CancelActiveDistanceMeasurement();
+    CancelActiveAngleMeasurement();
+    pendingMeasurementTool = PendingMeasurementTool::Angle;
 }
 
 void MyVtkNew::on_pushButtonAddDistance_clicked() 
 {
-    AddDistanceMeasurementToView();
+    // 按钮仅进入待激活态，不在此时绑定视图。
+    // 下一次 MouseButtonPress 落在 2D 视图时才真正创建 Distance widget。
+    CancelActiveDistanceMeasurement();
+    CancelActiveAngleMeasurement();
+    pendingMeasurementTool = PendingMeasurementTool::Distance;
 }
 
 void MyVtkNew::AddAngleToView(int i)
 {
+    // Angle 激活路径与 Distance 严格对称，避免出现“一种稳定一种不稳定”。
     if (i < 0 || i >= 3 || !riw[i])
         return;
     CancelActiveDistanceMeasurement();
     CancelActiveAngleMeasurement();
+    pendingMeasurementTool = PendingMeasurementTool::None;
     MarkViewInteracted(i);
     SetResliceCursorWidgetsProcessEvents(0);
 
@@ -1714,16 +1845,56 @@ void MyVtkNew::mouseMoveEvent(QMouseEvent* event)
 
 bool MyVtkNew::eventFilter(QObject* watched, QEvent* event)
 {
-    const QWidget* widget = qobject_cast<QWidget*>(watched);
-    const int idx = GetViewIndexFromWidget(widget);
-    if (idx >= 0 && event)
+    // watched 可能是 QVTK 内部子对象。必须沿父链回溯到 Sagittal/Coronal/Axial 主控件，
+    // 否则会出现“视图判定错位”，导致首击无法开画或跨视图取消时机错误。
+    const int idx = GetViewIndexFromObject(watched);
+    if (!event)
     {
-        const QEvent::Type t = event->type();
-        if (t == QEvent::MouseButtonPress || t == QEvent::FocusIn || t == QEvent::Enter)
+        return QMainWindow::eventFilter(watched, event);
+    }
+
+    const QEvent::Type t = event->type();
+    if (t == QEvent::MouseButtonPress)
+    {
+        const QPoint globalPos = QCursor::pos();
+        const int clickViewIndex = HitTest2DViewByGlobalPos(globalPos);
+
+        // 先处理 pending，确保“点按钮后下一次点击 2D 视图”就能直接创建测量。
+        // 不拦截事件，让本次点击继续交给 VTK interactor，可直接作为首个落点。
+        if (pendingMeasurementTool != PendingMeasurementTool::None)
         {
-            MaybeCancelActiveMeasurementsForView(idx);
-            MarkViewInteracted(idx);
+            if (clickViewIndex >= 0)
+            {
+                if (pendingMeasurementTool == PendingMeasurementTool::Distance)
+                {
+                    AddDistanceMeasurementToView(clickViewIndex);
+                }
+                else if (pendingMeasurementTool == PendingMeasurementTool::Angle)
+                {
+                    AddAngleToView(clickViewIndex);
+                }
+            }
+            else
+            {
+                // 按你的语义：待激活期间首击不在 2D 视图，立即取消待激活。
+                pendingMeasurementTool = PendingMeasurementTool::None;
+            }
+            return QMainWindow::eventFilter(watched, event);
         }
+
+        if (clickViewIndex >= 0)
+        {
+            // pending 已处理完后，再处理 active 的跨视图取消。
+            // 仅取消未完成测量，已完成历史测量保持显示。
+            MaybeCancelActiveMeasurementsForView(clickViewIndex);
+            MarkViewInteracted(clickViewIndex);
+        }
+    }
+    else if (t == QEvent::FocusIn && idx >= 0)
+    {
+        // Focus 变化也要更新最近交互视图，便于后续回退判定。
+        MaybeCancelActiveMeasurementsForView(idx);
+        MarkViewInteracted(idx);
     }
     return QMainWindow::eventFilter(watched, event);
 }
