@@ -7,6 +7,7 @@
 #include <QString>
 #include <QVTKOpenGLNativeWidget.h>
 #include <QVector>
+#include <QWidget>
 #include <QtWidgets/QMainWindow>
 #include <vtkActor.h>
 #include <vtkAngleWidget.h>
@@ -37,6 +38,8 @@
 #include <vtkVolumeProperty.h>
 
 class vtkResliceCursorCallback;
+class QObject;
+class QEvent;
 
 namespace Ui
 {
@@ -69,6 +72,7 @@ public slots:
     void on_pushButton_clicked();                         // 选择 DICOM 目录主函数 (主要的数据入口)
     void on_pushButtonConvertRawSlicesToDicom_clicked();  // 格式转换功能
     void on_pushButtonForAddAngle_clicked();              // 测角按钮触发
+    void on_pushButtonAddDistance_clicked();              // 测角按钮触发
 
     // 滚动条交互
     void UpdateSliceCenter(int viewIndex, int value);
@@ -91,15 +95,20 @@ public slots:
     void SetBlendModeToMinIP();
     void SetBlendModeToMeanIP();
     void ResetViews();
+    void AddDistanceMeasurementToView();
 
 public:
     // 更新每个2D视图右下角的窗宽窗位文本
     void UpdateCornerAnnotations();
     void Render();
-    void SyncViewsScale();
+    int DetermineTargetViewIndex() const;
+    int GetViewIndexFromWidget(const QWidget* widget) const;
+    void MarkViewInteracted(int viewIndex);
+    void MaybeCancelActiveMeasurementsForView(int sourceViewIndex);
     void MaybeCancelDistanceMeasurementForView(int sourceViewIndex);
+    void MaybeCancelAngleMeasurementForView(int sourceViewIndex);
     void CancelActiveDistanceMeasurement();
-    void AddDistanceMeasurementToView1();
+    void CancelActiveAngleMeasurement();
     void AddDistanceMeasurementToView(int i);
     void AddAngleToView(int i);
 
@@ -132,6 +141,12 @@ private:
     int activeDistanceViewIndex = -1;
     bool isDistanceArmed = false;
     unsigned long activeDistanceObserverTag = 0;
+    vtkSmartPointer<vtkAngleWidget> activeAngleWidget;
+    vtkSmartPointer<vtkCallbackCommand> activeAngleCallbackCommand;
+    int activeAngleViewIndex = -1;
+    bool isAngleArmed = false;
+    unsigned long activeAngleObserverTag = 0;
+    int lastInteractedViewIndex = 2;
 
     // 3D 视图
     vtkSmartPointer<vtkRenderer> ren;        // 3D场景渲染器 (对应 widget3D)
@@ -177,8 +192,16 @@ private:
     void Expand2DTo3D(vtkSmartPointer<vtkImageData>& imageData2D, vtkSmartPointer<vtkImageData>& imageData3D);
     void readDicomSeries(vtkSmartPointer<vtkImageViewer2>& viewer, QVTKOpenGLNativeWidget* widget,
                          const QString& orientation);
+    void Reset2DViewCameras();
+    void ResetObliqueViewCameras();
+    void SetResliceCursorWidgetsProcessEvents(int enabled);
+    void SyncPlaneWidgetsFromResliceCursorPlanes();
+    void SyncSliceSlidersFromViews();
+    void ValidateInteractionReadiness();
     static void OnDistanceEndInteraction(vtkObject* caller, unsigned long eventId, void* clientData, void* callData);
+    static void OnAngleEndInteraction(vtkObject* caller, unsigned long eventId, void* clientData, void* callData);
 
 protected:
     void mouseMoveEvent(QMouseEvent* event);
+    bool eventFilter(QObject* watched, QEvent* event) override;
 };

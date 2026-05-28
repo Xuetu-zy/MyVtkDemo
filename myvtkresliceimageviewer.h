@@ -67,6 +67,8 @@ protected:
     MyVtkResliceImageViewerMeasurements *Measurements;
     vtkTypeBool SliceScrollOnMouseWheel;
     vtkResliceImageViewerScrollCallback *ScrollCallback;
+    unsigned long MouseWheelForwardObserverTag;
+    unsigned long MouseWheelBackwardObserverTag;
 private:
     MyVtkResliceImageViewer(const MyVtkResliceImageViewer&) = delete;
     void operator=(const MyVtkResliceImageViewer&) = delete;

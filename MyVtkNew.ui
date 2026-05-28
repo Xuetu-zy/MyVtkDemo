@@ -189,9 +189,9 @@
          </property>
          <layout class="QVBoxLayout" name="verticalLayout_5">
           <item>
-           <widget class="QPushButton" name="AddDistance1Button">
+           <widget class="QPushButton" name="pushButtonAddDistance">
             <property name="text">
-             <string>Add Distance On View 1</string>
+             <string>Add Distance On View</string>
             </property>
            </widget>
           </item>

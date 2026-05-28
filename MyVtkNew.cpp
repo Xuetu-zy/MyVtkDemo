@@ -21,13 +21,19 @@
 #include "vtkResliceImageViewer.h"
 #include "vtkResliceImageViewerMeasurements.h"
 
-#include <QDebug>
 #include <QDir>
 #include <QFileDialog>
 #include <QPainter>
+#include <QApplication>
+#include <QDebug>
+#include <QCursor>
+#include <QEvent>
+#include <QMouseEvent>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QVTKOpenGLNativeWidget.h>
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <qmessagebox.h>
 #include <vtkActor2D.h>
@@ -118,18 +124,28 @@ public:
             {
                 window = this->Viewers[sourceView]->GetColorWindow();
             }
-            window = clampToRange(window, 1.0, 65535.0);
-            level = clampToRange(level, 0.0, 65535.0);
+            double range[2] = {0.0, 65535.0};
+            if (this->Viewers[sourceView]->GetInput())
+            {
+                this->Viewers[sourceView]->GetInput()->GetScalarRange(range);
+            }
+            window = clampToRange(window, 1.0, std::max(1.0, (range[1] - range[0]) * 4.0));
+            level = clampToRange(level, range[0] - fabs(window), range[1] + fabs(window));
 
             this->InWindowLevelSync = true;
             for (int i = 0; i < 3; i++)
             {
                 if (this->Viewers[i])
                 {
-                    if (i != sourceView)
+                    this->Viewers[i]->SetColorWindow(window);
+                    this->Viewers[i]->SetColorLevel(level);
+                }
+                if (this->RCW[i])
+                {
+                    if (vtkResliceCursorRepresentation* rep =
+                            vtkResliceCursorRepresentation::SafeDownCast(this->RCW[i]->GetRepresentation()))
                     {
-                        this->Viewers[i]->SetColorWindow(window);
-                        this->Viewers[i]->SetColorLevel(level);
+                        rep->SetWindowLevel(window, level, 1);
                     }
                 }
                 if (this->IPW[i])
@@ -153,15 +169,48 @@ public:
             }
         };
 
+        auto syncPlaneWidgetsFromResliceCursor = [this]() {
+            for (int i = 0; i < 3; i++)
+            {
+                if (!this->IPW[i] || !this->RCW[i] || !this->RCW[i]->GetResliceCursorRepresentation())
+                {
+                    continue;
+                }
+                vtkPlaneSource* ps = static_cast<vtkPlaneSource*>(this->IPW[i]->GetPolyDataAlgorithm());
+                vtkPlaneSource* cursorPlane = this->RCW[i]->GetResliceCursorRepresentation()->GetPlaneSource();
+                if (!ps || !cursorPlane)
+                {
+                    continue;
+                }
+                ps->SetOrigin(cursorPlane->GetOrigin());
+                ps->SetPoint1(cursorPlane->GetPoint1());
+                ps->SetPoint2(cursorPlane->GetPoint2());
+                this->IPW[i]->UpdatePlacement();
+            }
+        };
+
         if (ev == vtkCommand::WindowLevelEvent)
         {
             for (int i = 0; i < 3; i++)
             {
                 if (this->Viewers[i] && caller == this->Viewers[i]->GetInteractorStyle())
                 {
-                    this->MyVtkApp->MaybeCancelDistanceMeasurementForView(i);
+                    this->MyVtkApp->MarkViewInteracted(i);
                     syncWindowLevelFromView(i, this->Viewers[i]->GetColorWindow(), this->Viewers[i]->GetColorLevel());
                     return;
+                }
+            }
+        }
+
+        if (ev == MyVtkResliceImageViewer::SliceChangedEvent || ev == vtkCommand::InteractionEvent)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (caller == this->Viewers[i])
+                {
+                    this->MyVtkApp->MarkViewInteracted(i);
+                    syncPlaneWidgetsFromResliceCursor();
+                    break;
                 }
             }
         }
@@ -172,7 +221,11 @@ public:
             {
                 if (caller == this->RCW[i])
                 {
-                    this->MyVtkApp->MaybeCancelDistanceMeasurementForView(i);
+                    if (!this->Viewers[i])
+                    {
+                        return;
+                    }
+                    this->MyVtkApp->MarkViewInteracted(i);
                     double window = this->Viewers[i]->GetColorWindow();
                     double level = this->Viewers[i]->GetColorLevel();
                     if (vtkResliceCursorRepresentation* rep =
@@ -201,7 +254,8 @@ public:
         {
             for (int i = 0; i < 3; i++)
             {
-                this->RCW[i]->Render();
+                if (this->RCW[i])
+                    this->RCW[i]->Render();
             }
             return;
         }
@@ -220,17 +274,21 @@ public:
                     }
                 }
             }
-            if (ipw == this->IPW[0])
+            if (!wl)
+            {
+                return;
+            }
+            if (ipw == this->IPW[0] && this->IPW[1] && this->IPW[2])
             {
                 this->IPW[1]->SetWindowLevel(wl[0], wl[1], 1);
                 this->IPW[2]->SetWindowLevel(wl[0], wl[1], 1);
             }
-            else if (ipw == this->IPW[1])
+            else if (ipw == this->IPW[1] && this->IPW[0] && this->IPW[2])
             {
                 this->IPW[0]->SetWindowLevel(wl[0], wl[1], 1);
                 this->IPW[2]->SetWindowLevel(wl[0], wl[1], 1);
             }
-            else if (ipw == this->IPW[2])
+            else if (ipw == this->IPW[2] && this->IPW[0] && this->IPW[1])
             {
                 this->IPW[0]->SetWindowLevel(wl[0], wl[1], 1);
                 this->IPW[1]->SetWindowLevel(wl[0], wl[1], 1);
@@ -241,21 +299,22 @@ public:
         {
             vtkResliceCursorLineRepresentation* rep =
                 dynamic_cast<vtkResliceCursorLineRepresentation*>(rcw->GetRepresentation());
-            rep->GetResliceCursorActor()->GetCursorAlgorithm()->GetResliceCursor();
-            for (int i = 0; i < 3; i++)
+            if (!rep || !rep->GetResliceCursorActor())
             {
-                vtkPlaneSource* ps = static_cast<vtkPlaneSource*>(this->IPW[i]->GetPolyDataAlgorithm());
-                ps->SetOrigin(this->RCW[i]->GetResliceCursorRepresentation()->GetPlaneSource()->GetOrigin());
-                ps->SetPoint1(this->RCW[i]->GetResliceCursorRepresentation()->GetPlaneSource()->GetPoint1());
-                ps->SetPoint2(this->RCW[i]->GetResliceCursorRepresentation()->GetPlaneSource()->GetPoint2());
-                this->IPW[i]->UpdatePlacement();
+                return;
             }
+            syncPlaneWidgetsFromResliceCursor();
         }
         for (int i = 0; i < 3; i++)
         {
-            this->RCW[i]->Render();
+            if (this->RCW[i])
+                this->RCW[i]->Render();
         }
-        this->IPW[0]->GetInteractor()->GetRenderWindow()->Render();
+        this->MyVtkApp->UpdateCornerAnnotations();
+        if (this->IPW[0] && this->IPW[0]->GetInteractor())
+        {
+            this->IPW[0]->GetInteractor()->GetRenderWindow()->Render();
+        }
     }
 
     vtkResliceCursorCallback() : MyVtkApp(nullptr) {}
@@ -279,17 +338,23 @@ MyVtkNew::MyVtkNew(QWidget* parent) : QMainWindow(parent)
     ui->gridLayout->setColumnStretch(0, 1);
     ui->gridLayout->setColumnStretch(1, 1);
 
-    connect(this->ui->resliceModeCheckBox, SIGNAL(stateChanged(int)), this, SLOT(resliceMode(int)));
-    connect(this->ui->thickModeCheckBox, SIGNAL(stateChanged(int)), this, SLOT(thickMode(int)));
+    connect(this->ui->resliceModeCheckBox, &QCheckBox::stateChanged, this, &MyVtkNew::resliceMode);
+    connect(this->ui->thickModeCheckBox, &QCheckBox::stateChanged, this, &MyVtkNew::thickMode);
     this->ui->thickModeCheckBox->setEnabled(false);
 
-    connect(this->ui->radioButton_Max, SIGNAL(pressed()), this, SLOT(SetBlendModeToMaxIP()));
-    connect(this->ui->radioButton_Min, SIGNAL(pressed()), this, SLOT(SetBlendModeToMinIP()));
-    connect(this->ui->radioButton_Mean, SIGNAL(pressed()), this, SLOT(SetBlendModeToMeanIP()));
+    connect(this->ui->radioButton_Max, &QRadioButton::pressed, this, &MyVtkNew::SetBlendModeToMaxIP);
+    connect(this->ui->radioButton_Min, &QRadioButton::pressed, this, &MyVtkNew::SetBlendModeToMinIP);
+    connect(this->ui->radioButton_Mean, &QRadioButton::pressed, this, &MyVtkNew::SetBlendModeToMeanIP);
     this->ui->blendModeGroupBox->setEnabled(false);
 
-    connect(this->ui->resetButton, SIGNAL(pressed()), this, SLOT(ResetViews()));
-    connect(this->ui->AddDistance1Button, SIGNAL(pressed()), this, SLOT(AddDistanceMeasurementToView1()));
+    const QMetaObject::Connection resetConn =
+        connect(this->ui->resetButton, &QPushButton::pressed, this, &MyVtkNew::ResetViews);
+
+    qDebug() << "connect resetButton ok =" << static_cast<bool>(resetConn);
+
+    ui->widgetSagittal->installEventFilter(this);
+    ui->widgetCoronal->installEventFilter(this);
+    ui->widgetAxial->installEventFilter(this);
 }
 
 MyVtkNew::~MyVtkNew()
@@ -299,6 +364,7 @@ MyVtkNew::~MyVtkNew()
 
 void MyVtkNew::resizeEvent(QResizeEvent* event)
 {
+    QMainWindow::resizeEvent(event);
     if (ui->widgetAxial->renderWindow())
         ui->widgetAxial->renderWindow()->Render();
     if (ui->widgetCoronal->renderWindow())
@@ -342,6 +408,8 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
 {
     if (!imageData)
         return;
+    CancelActiveDistanceMeasurement();
+    CancelActiveAngleMeasurement();
 
     // 清理旧的交互组件，避免重新加载图像时，残留组件响应旧事件导致崩溃
     for (int i = 0; i < 3; i++)
@@ -350,6 +418,10 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
         {
             riw[i]->GetResliceCursorWidget()->RemoveAllObservers();
             riw[i]->GetResliceCursorWidget()->Off();
+        }
+        if (riw[i])
+        {
+            riw[i]->RemoveAllObservers();
         }
         if (riw[i] && riw[i]->GetInteractorStyle())
         {
@@ -431,6 +503,8 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
         peopleInforTextActor[i]->SetInput(patientInfo.toUtf8());
     }
 
+    lastInteractedViewIndex = 2;
+
     // --- 阶段一：创建三个 MPR 视图对象 ---
     for (auto i = 0; i < 3; i++)
     {
@@ -476,11 +550,22 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
         vtkImageViewer2::SLICE_ORIENTATION_XZ,  // widgetCoronal
         vtkImageViewer2::SLICE_ORIENTATION_XY   // widgetAxial
     };
+    vtkResliceCursor* sharedCursor = riw[0]->GetResliceCursor();
     for (int i = 0; i < 3; i++)
     {
+        riw[i]->SetResliceCursor(sharedCursor);
+        if (vtkResliceCursorRepresentation* rep =
+                vtkResliceCursorRepresentation::SafeDownCast(
+                    riw[i]->GetResliceCursorWidget()->GetRepresentation()))
+        {
+            rep->GetCursorAlgorithm()->SetResliceCursor(sharedCursor);
+            rep->GetCursorAlgorithm()->SetReslicePlaneNormal(i);
+        }
         riw[i]->SetInputData(imageData);
         riw[i]->SetSliceOrientation(orientationByView[i]);
-        riw[i]->SetResliceCursor(riw[0]->GetResliceCursor());
+        const int sliceMin = riw[i]->GetSliceMin();
+        const int sliceMax = riw[i]->GetSliceMax();
+        riw[i]->SetSlice((sliceMin + sliceMax) / 2);
         riw[i]->SetLookupTable(riw[0]->GetLookupTable());
         riw[i]->GetRenderer()->SetBackground(0, 0, 0);
 
@@ -489,11 +574,14 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
             vtkResliceCursorLineRepresentation::SafeDownCast(riw[i]->GetResliceCursorWidget()->GetRepresentation());
         if (rep && rep->GetResliceCursorActor() && rep->GetResliceCursorActor()->GetCursorAlgorithm())
         {
-            rep->GetResliceCursorActor()->GetCursorAlgorithm()->SetReslicePlaneNormal(orientationByView[i]);
+            rep->GetResliceCursorActor()->GetCursorAlgorithm()->SetResliceCursor(sharedCursor);
+            rep->GetResliceCursorActor()->GetCursorAlgorithm()->SetReslicePlaneNormal(i);
         }
         riw[i]->GetResliceCursorWidget()->ManageWindowLevelOn();
+        riw[i]->GetResliceCursorWidget()->SetManageWindowLevel(1);
     }
     riw[0]->GetResliceCursor()->SetCenter(imageData->GetCenter());
+    Reset2DViewCameras();
 
     // 默认进入 AxisAligned：仅显示图像，十字线在勾选 Oblique 后再显示
     ui->resliceModeCheckBox->blockSignals(true);
@@ -559,6 +647,8 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
         riw[i]->GetResliceCursorWidget()->AddObserver(vtkResliceCursorWidget::ResliceThicknessChangedEvent, cbk);
         riw[i]->GetResliceCursorWidget()->AddObserver(vtkResliceCursorWidget::ResetCursorEvent, cbk);
         riw[i]->GetInteractorStyle()->AddObserver(vtkCommand::WindowLevelEvent, cbk);
+        riw[i]->AddObserver(MyVtkResliceImageViewer::SliceChangedEvent, cbk);
+        riw[i]->AddObserver(vtkCommand::InteractionEvent, cbk);
 
         planeWidget[i]->GetColorMap()->SetLookupTable(riw[0]->GetLookupTable());
         planeWidget[i]->SetColorMap(riw[i]->GetResliceCursorWidget()->GetResliceCursorRepresentation()->GetColorMap());
@@ -568,6 +658,7 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
             rep->DisplayTextOff();
         }
         riw[i]->GetResliceCursorWidget()->ManageWindowLevelOn();
+        riw[i]->GetResliceCursorWidget()->SetManageWindowLevel(1);
     }
 
     // --- 阶段六：配置十字光标颜色 + 强制构建几何体 ---
@@ -589,21 +680,26 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
 
     }
 
-    // 延迟 100ms 同步缩放，等待 Qt 彻底完成 UI 布局，防止窗口大小为 0 时计算出错误的相机参数
-    SyncViewsScale();
-    QTimer::singleShot(100, this, SLOT(SyncViewsScale()));
-
     // 最终渲染 3D 视图
     ren->ResetCamera();
     ui->widget3D->renderWindow()->Render();
 
     // --- 阶段七：滑块范围 ---
+    ui->horizontalSliderAxial->blockSignals(true);
+    ui->horizontalSliderCoronal->blockSignals(true);
+    ui->horizontalSliderSagittal->blockSignals(true);
     ui->horizontalSliderAxial->setMinimum(0);
     ui->horizontalSliderAxial->setMaximum(imageDims[2] - 1);
+    ui->horizontalSliderAxial->setValue(riw[2] ? riw[2]->GetSlice() : imageDims[2] / 2);
     ui->horizontalSliderCoronal->setMinimum(0);
     ui->horizontalSliderCoronal->setMaximum(imageDims[1] - 1);
+    ui->horizontalSliderCoronal->setValue(riw[1] ? riw[1]->GetSlice() : imageDims[1] / 2);
     ui->horizontalSliderSagittal->setMinimum(0);
     ui->horizontalSliderSagittal->setMaximum(imageDims[0] - 1);
+    ui->horizontalSliderSagittal->setValue(riw[0] ? riw[0]->GetSlice() : imageDims[0] / 2);
+    ui->horizontalSliderAxial->blockSignals(false);
+    ui->horizontalSliderCoronal->blockSignals(false);
+    ui->horizontalSliderSagittal->blockSignals(false);
 
     // 初始化体绘制全局透明度控制滑块范围
     ui->horizontalSliderVolume->setMinimum(0);
@@ -614,6 +710,18 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
     ui->widgetCoronal->update();
     ui->widgetAxial->update();
     ui->widget3D->update();
+    ValidateInteractionReadiness();
+    QTimer::singleShot(100, this, [this]() {
+        if (ui->resliceModeCheckBox->isChecked())
+        {
+            ResetObliqueViewCameras();
+        }
+        else
+        {
+            Reset2DViewCameras();
+        }
+        SyncPlaneWidgetsFromResliceCursorPlanes();
+    });
 }
 
 // -------------------------------------------------------------------------
@@ -861,12 +969,16 @@ void MyVtkNew::on_pushButtonFor3D_clicked()
 // -------------------------------------------------------------------------
 void MyVtkNew::UpdateSliceCenter(int viewIndex, int value)
 {
-    if (!riw[viewIndex])
+    if (viewIndex < 0 || viewIndex > 2 || !riw[viewIndex] || !riw[viewIndex]->GetInput())
         return;
+    MaybeCancelActiveMeasurementsForView(viewIndex);
 
+    const int axis = riw[viewIndex]->GetSliceOrientation();
     if (riw[viewIndex]->GetResliceMode() == 1)  // Oblique
     {
         vtkResliceCursor* cursor = riw[viewIndex]->GetResliceCursor();
+        if (!cursor)
+            return;
         double center[3];
         cursor->GetCenter(center);
 
@@ -874,13 +986,16 @@ void MyVtkNew::UpdateSliceCenter(int viewIndex, int value)
         riw[viewIndex]->GetInput()->GetOrigin(origin);
         riw[viewIndex]->GetInput()->GetSpacing(spacing);
 
-        center[viewIndex] = origin[viewIndex] + value * spacing[viewIndex];
+        center[axis] = origin[axis] + value * spacing[axis];
         cursor->SetCenter(center);
 
         for (int i = 0; i < 3; i++)
         {
-            riw[i]->GetResliceCursorWidget()->Render();
+            if (riw[i] && riw[i]->GetResliceCursorWidget())
+                riw[i]->GetResliceCursorWidget()->Render();
         }
+        if (ui->widget3D && ui->widget3D->renderWindow())
+            ui->widget3D->renderWindow()->Render();
     }
     else  // AxisAligned
     {
@@ -907,22 +1022,60 @@ void MyVtkNew::on_horizontalSliderSagittal_valueChanged(int value)
 void MyVtkNew::resliceMode(int mode)
 {
     CancelActiveDistanceMeasurement();
+    CancelActiveAngleMeasurement();
+    vtkResliceCursor* sharedCursor = riw[0] ? riw[0]->GetResliceCursor() : nullptr;
     for (int i = 0; i < 3; i++)
     {
+        if (!riw[i])
+        {
+            continue;
+        }
+        if (sharedCursor)
+        {
+            riw[i]->SetResliceCursor(sharedCursor);
+        }
+        if (vtkResliceCursorRepresentation* lineRep =
+                vtkResliceCursorRepresentation::SafeDownCast(
+                    riw[i]->GetResliceCursorWidget()->GetRepresentation()))
+        {
+            if (sharedCursor)
+            {
+                lineRep->GetCursorAlgorithm()->SetResliceCursor(sharedCursor);
+            }
+            lineRep->GetCursorAlgorithm()->SetReslicePlaneNormal(i);
+        }
         riw[i]->SetResliceMode(mode ? 1 : 0);
+        riw[i]->GetResliceCursorWidget()->SetProcessEvents(1);
         riw[i]->GetResliceCursorWidget()->ManageWindowLevelOn();
+        riw[i]->GetResliceCursorWidget()->SetManageWindowLevel(1);
         if (vtkResliceCursorRepresentation* rep =
                 vtkResliceCursorRepresentation::SafeDownCast(riw[i]->GetResliceCursorWidget()->GetRepresentation()))
         {
             rep->DisplayTextOff();
-            if (mode)
-            {
-                rep->BuildRepresentation();
-            }
+            rep->SetWindowLevel(riw[i]->GetColorWindow(), riw[i]->GetColorLevel(), 1);
+            rep->BuildRepresentation();
+        }
+        if (riw[i]->GetRenderer())
+        {
+            riw[i]->GetRenderer()->ResetCamera();
+            riw[i]->GetRenderer()->ResetCameraClippingRange();
         }
         riw[i]->Render();
     }
-    SyncViewsScale();
+    if (mode)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            if (riw[i])
+            {
+                riw[i]->Render();
+            }
+        }
+    }
+    else
+    {
+        Reset2DViewCameras();
+    }
     UpdateCornerAnnotations();
     ui->thickModeCheckBox->setEnabled(mode ? 1 : 0);
     ui->blendModeGroupBox->setEnabled(mode ? 1 : 0);
@@ -971,10 +1124,58 @@ void MyVtkNew::SetBlendModeToMeanIP()
 void MyVtkNew::ResetViews()
 {
     CancelActiveDistanceMeasurement();
+    CancelActiveAngleMeasurement();
+
     for (int i = 0; i < 3; i++)
     {
+        if (!riw[i])
+        {
+            continue;
+        }
         riw[i]->Reset();
+
+        if (riw[i]->GetResliceMode() == MyVtkResliceImageViewer::RESLICE_AXIS_ALIGNED)
+        {
+            const int sliceMin = riw[i]->GetSliceMin();
+            const int sliceMax = riw[i]->GetSliceMax();
+            riw[i]->SetSlice((sliceMin + sliceMax) / 2);
+        }
     }
+
+    if (ui->resliceModeCheckBox->isChecked())
+    {
+        SyncPlaneWidgetsFromResliceCursorPlanes();
+        ResetObliqueViewCameras();
+    }
+    else
+    {
+        SyncPlaneWidgetsFromResliceCursorPlanes();
+        Reset2DViewCameras();
+    }
+    SyncSliceSlidersFromViews();
+
+    if (ren)
+    {
+        ren->ResetCamera();
+        ren->ResetCameraClippingRange();
+    }
+
+    if (ui->widget3D && ui->widget3D->renderWindow())
+    {
+        ui->widget3D->renderWindow()->Render();
+    }
+
+    if (renderer)
+    {
+        renderer->ResetCamera();
+        renderer->ResetCameraClippingRange();
+    }
+
+    if (ui->widget3D_2 && ui->widget3D_2->renderWindow())
+    {
+        ui->widget3D_2->renderWindow()->Render();
+    }
+
     Render();
 }
 
@@ -1022,82 +1223,208 @@ void MyVtkNew::updatePlaneTextEdit(int id, double window, double level)
 
 void MyVtkNew::WindowLevelCallback(vtkObject* caller, unsigned long eventId, void* clientData, void* callData) {}
 
-void MyVtkNew::SyncViewsScale()
+void MyVtkNew::Reset2DViewCameras()
 {
-    if (!mainImageData)
-        return;
-
-    double bounds[6];
-    mainImageData->GetBounds(bounds);
-    const double dx = bounds[1] - bounds[0];
-    const double dy = bounds[3] - bounds[2];
-    const double dz = bounds[5] - bounds[4];
-    double center[3] = {0.0, 0.0, 0.0};
-    mainImageData->GetCenter(center);
-
     for (int i = 0; i < 3; i++)
     {
-        if (riw[i] && riw[i]->GetRenderer() && riw[i]->GetRenderWindow())
+        if (!riw[i] || !riw[i]->GetRenderer() || !riw[i]->GetInput() ||
+            riw[i]->GetResliceMode() != MyVtkResliceImageViewer::RESLICE_AXIS_ALIGNED)
         {
-            int* viewSize = riw[i]->GetRenderWindow()->GetSize();
-            const double w = (viewSize && viewSize[0] > 0) ? static_cast<double>(viewSize[0]) : 1.0;
-            const double h = (viewSize && viewSize[1] > 0) ? static_cast<double>(viewSize[1]) : 1.0;
-            const double aspect = w / h;
+            continue;
+        }
+        riw[i]->GetRenderer()->ResetCamera();
+        riw[i]->GetRenderer()->ResetCameraClippingRange();
+        riw[i]->Render();
+    }
+}
 
-            double planeW = dx;
-            double planeH = dy;
-            switch (riw[i]->GetSliceOrientation())
-            {
-                case vtkImageViewer2::SLICE_ORIENTATION_YZ:
-                    planeW = dy;
-                    planeH = dz;
-                    break;
-                case vtkImageViewer2::SLICE_ORIENTATION_XZ:
-                    planeW = dx;
-                    planeH = dz;
-                    break;
-                case vtkImageViewer2::SLICE_ORIENTATION_XY:
-                default:
-                    planeW = dx;
-                    planeH = dy;
-                    break;
-            }
+void MyVtkNew::ResetObliqueViewCameras()
+{
+    for (int i = 0; i < 3; i++)
+    {
+        if (!riw[i] || !riw[i]->GetRenderer() || !riw[i]->GetResliceCursorWidget() ||
+            riw[i]->GetResliceMode() != MyVtkResliceImageViewer::RESLICE_OBLIQUE)
+        {
+            continue;
+        }
+        vtkResliceCursorRepresentation* rep = vtkResliceCursorRepresentation::SafeDownCast(
+            riw[i]->GetResliceCursorWidget()->GetRepresentation());
+        if (rep)
+        {
+            rep->BuildRepresentation();
+        }
+        riw[i]->GetRenderer()->ResetCamera();
+        riw[i]->GetRenderer()->ResetCameraClippingRange();
+        riw[i]->Render();
+    }
+}
 
-            const double scaleByHeight = planeH * 0.5;
-            const double scaleByWidth = (aspect > 0.0) ? (planeW * 0.5 / aspect) : scaleByHeight;
-            const double uniformScale = (scaleByHeight > scaleByWidth) ? scaleByHeight : scaleByWidth;
-            vtkCamera* cam = riw[i]->GetRenderer()->GetActiveCamera();
-            if (cam)
-            {
-                const double distance = cam->GetDistance();
-                double pos[3] = {center[0], center[1], center[2]};
-                switch (riw[i]->GetSliceOrientation())
-                {
-                    case vtkImageViewer2::SLICE_ORIENTATION_YZ:
-                        pos[0] = center[0] + distance;
-                        break;
-                    case vtkImageViewer2::SLICE_ORIENTATION_XZ:
-                        pos[1] = center[1] - distance;
-                        break;
-                    case vtkImageViewer2::SLICE_ORIENTATION_XY:
-                    default:
-                        pos[2] = center[2] + distance;
-                        break;
-                }
-                cam->SetFocalPoint(center);
-                cam->SetPosition(pos);
-                cam->SetParallelScale(uniformScale);
-            }
-            riw[i]->Render();
+void MyVtkNew::SetResliceCursorWidgetsProcessEvents(int enabled)
+{
+    for (int i = 0; i < 3; i++)
+    {
+        if (riw[i] && riw[i]->GetResliceCursorWidget())
+        {
+            riw[i]->GetResliceCursorWidget()->SetProcessEvents(enabled ? 1 : 0);
         }
     }
 }
 
-void MyVtkNew::AddDistanceMeasurementToView1()
+void MyVtkNew::SyncPlaneWidgetsFromResliceCursorPlanes()
 {
-    CancelActiveDistanceMeasurement();
-    // 按约定仅在单视图启用，默认 Axial 视图
-    AddDistanceMeasurementToView(2);
+    for (int i = 0; i < 3; i++)
+    {
+        if (!planeWidget[i] || !riw[i] || !riw[i]->GetResliceCursorWidget())
+        {
+            continue;
+        }
+        vtkResliceCursorRepresentation* rep = vtkResliceCursorRepresentation::SafeDownCast(
+            riw[i]->GetResliceCursorWidget()->GetRepresentation());
+        if (!rep || !rep->GetPlaneSource())
+        {
+            continue;
+        }
+        vtkPlaneSource* ps = static_cast<vtkPlaneSource*>(planeWidget[i]->GetPolyDataAlgorithm());
+        if (!ps)
+        {
+            continue;
+        }
+        vtkPlaneSource* cursorPlane = rep->GetPlaneSource();
+        ps->SetOrigin(cursorPlane->GetOrigin());
+        ps->SetPoint1(cursorPlane->GetPoint1());
+        ps->SetPoint2(cursorPlane->GetPoint2());
+        planeWidget[i]->UpdatePlacement();
+    }
+}
+
+void MyVtkNew::SyncSliceSlidersFromViews()
+{
+    ui->horizontalSliderAxial->blockSignals(true);
+    ui->horizontalSliderCoronal->blockSignals(true);
+    ui->horizontalSliderSagittal->blockSignals(true);
+
+    if (riw[2])
+    {
+        ui->horizontalSliderAxial->setValue(riw[2]->GetSlice());
+    }
+    if (riw[1])
+    {
+        ui->horizontalSliderCoronal->setValue(riw[1]->GetSlice());
+    }
+    if (riw[0])
+    {
+        ui->horizontalSliderSagittal->setValue(riw[0]->GetSlice());
+    }
+
+    ui->horizontalSliderAxial->blockSignals(false);
+    ui->horizontalSliderCoronal->blockSignals(false);
+    ui->horizontalSliderSagittal->blockSignals(false);
+}
+
+void MyVtkNew::ValidateInteractionReadiness()
+{
+    for (int i = 0; i < 3; i++)
+    {
+        const bool viewerOk = (riw[i] && riw[i]->GetInteractor() && riw[i]->GetRenderer());
+        const bool rcwOk = (riw[i] && riw[i]->GetResliceCursorWidget());
+        const int mode = riw[i] ? riw[i]->GetResliceMode() : -1;
+        const int rcwProc = (riw[i] && riw[i]->GetResliceCursorWidget())
+            ? riw[i]->GetResliceCursorWidget()->GetProcessEvents()
+            : -1;
+        qDebug() << "viewer[" << i << "] ready =" << viewerOk << ", rcw =" << rcwOk
+                 << ", mode =" << mode << ", rcwProcessEvents =" << rcwProc;
+    }
+}
+
+int MyVtkNew::GetViewIndexFromWidget(const QWidget* widget) const
+{
+    if (!widget)
+    {
+        return -1;
+    }
+    if (widget == ui->widgetSagittal)
+    {
+        return 0;
+    }
+    if (widget == ui->widgetCoronal)
+    {
+        return 1;
+    }
+    if (widget == ui->widgetAxial)
+    {
+        return 2;
+    }
+    return -1;
+}
+
+void MyVtkNew::MarkViewInteracted(int viewIndex)
+{
+    if (viewIndex >= 0 && viewIndex < 3)
+    {
+        lastInteractedViewIndex = viewIndex;
+    }
+}
+
+int MyVtkNew::DetermineTargetViewIndex() const
+{
+    const QPoint globalPos = QCursor::pos();
+    if (ui->widgetSagittal &&
+        ui->widgetSagittal->rect().contains(ui->widgetSagittal->mapFromGlobal(globalPos)))
+    {
+        return 0;
+    }
+    if (ui->widgetCoronal &&
+        ui->widgetCoronal->rect().contains(ui->widgetCoronal->mapFromGlobal(globalPos)))
+    {
+        return 1;
+    }
+    if (ui->widgetAxial && ui->widgetAxial->rect().contains(ui->widgetAxial->mapFromGlobal(globalPos)))
+    {
+        return 2;
+    }
+
+    QWidget* focusWidget = QApplication::focusWidget();
+    for (QWidget* w = focusWidget; w; w = w->parentWidget())
+    {
+        const int idx = GetViewIndexFromWidget(w);
+        if (idx >= 0)
+        {
+            return idx;
+        }
+    }
+
+    if (ui->widgetSagittal && ui->widgetSagittal->underMouse())
+    {
+        return 0;
+    }
+    if (ui->widgetCoronal && ui->widgetCoronal->underMouse())
+    {
+        return 1;
+    }
+    if (ui->widgetAxial && ui->widgetAxial->underMouse())
+    {
+        return 2;
+    }
+
+    if (lastInteractedViewIndex >= 0 && lastInteractedViewIndex < 3)
+    {
+        return lastInteractedViewIndex;
+    }
+
+    return 2;
+}
+
+void MyVtkNew::MaybeCancelActiveMeasurementsForView(int sourceViewIndex)
+{
+    MarkViewInteracted(sourceViewIndex);
+    MaybeCancelDistanceMeasurementForView(sourceViewIndex);
+    MaybeCancelAngleMeasurementForView(sourceViewIndex);
+}
+
+void MyVtkNew::AddDistanceMeasurementToView()
+{
+    const int targetView = DetermineTargetViewIndex();
+    AddDistanceMeasurementToView(targetView);
 }
 
 void MyVtkNew::CancelActiveDistanceMeasurement()
@@ -1108,6 +1435,8 @@ void MyVtkNew::CancelActiveDistanceMeasurement()
         activeDistanceViewIndex = -1;
         activeDistanceObserverTag = 0;
         activeDistanceCallbackCommand = nullptr;
+        SetResliceCursorWidgetsProcessEvents(1);
+        SyncPlaneWidgetsFromResliceCursorPlanes();
         return;
     }
     if (activeDistanceObserverTag != 0)
@@ -1120,6 +1449,8 @@ void MyVtkNew::CancelActiveDistanceMeasurement()
     activeDistanceCallbackCommand = nullptr;
     isDistanceArmed = false;
     activeDistanceViewIndex = -1;
+    SetResliceCursorWidgetsProcessEvents(1);
+    SyncPlaneWidgetsFromResliceCursorPlanes();
 }
 
 void MyVtkNew::MaybeCancelDistanceMeasurementForView(int sourceViewIndex)
@@ -1134,6 +1465,43 @@ void MyVtkNew::MaybeCancelDistanceMeasurementForView(int sourceViewIndex)
     }
 }
 
+void MyVtkNew::CancelActiveAngleMeasurement()
+{
+    if (!activeAngleWidget)
+    {
+        isAngleArmed = false;
+        activeAngleViewIndex = -1;
+        activeAngleObserverTag = 0;
+        activeAngleCallbackCommand = nullptr;
+        SetResliceCursorWidgetsProcessEvents(1);
+        return;
+    }
+    if (activeAngleObserverTag != 0)
+    {
+        activeAngleWidget->RemoveObserver(activeAngleObserverTag);
+        activeAngleObserverTag = 0;
+    }
+    activeAngleWidget->Off();
+    activeAngleWidget = nullptr;
+    activeAngleCallbackCommand = nullptr;
+    isAngleArmed = false;
+    activeAngleViewIndex = -1;
+    SetResliceCursorWidgetsProcessEvents(1);
+    SyncPlaneWidgetsFromResliceCursorPlanes();
+}
+
+void MyVtkNew::MaybeCancelAngleMeasurementForView(int sourceViewIndex)
+{
+    if (!isAngleArmed || activeAngleViewIndex < 0)
+    {
+        return;
+    }
+    if (sourceViewIndex != activeAngleViewIndex)
+    {
+        CancelActiveAngleMeasurement();
+    }
+}
+
 void MyVtkNew::OnDistanceEndInteraction(vtkObject* caller, unsigned long eventId, void* clientData, void* callData)
 {
     Q_UNUSED(eventId);
@@ -1144,27 +1512,65 @@ void MyVtkNew::OnDistanceEndInteraction(vtkObject* caller, unsigned long eventId
     {
         return;
     }
-    if (widget->GetWidgetState() == vtkDistanceWidget::Manipulate)
+    self->MarkViewInteracted(self->activeDistanceViewIndex);
+    if (widget->GetWidgetState() != vtkDistanceWidget::Manipulate)
     {
-        widget->SetProcessEvents(0);
-        widget->SetPriority(0.1);
-        if (self->activeDistanceObserverTag != 0)
-        {
-            widget->RemoveObserver(self->activeDistanceObserverTag);
-            self->activeDistanceObserverTag = 0;
-        }
-        self->activeDistanceWidget = nullptr;
-        self->activeDistanceCallbackCommand = nullptr;
-        self->activeDistanceViewIndex = -1;
-        self->isDistanceArmed = false;
+        return;
     }
+    widget->SetProcessEvents(0);
+    widget->SetPriority(0.1);
+    if (self->activeDistanceObserverTag != 0)
+    {
+        widget->RemoveObserver(self->activeDistanceObserverTag);
+        self->activeDistanceObserverTag = 0;
+    }
+    self->activeDistanceWidget = nullptr;
+    self->activeDistanceCallbackCommand = nullptr;
+    self->activeDistanceViewIndex = -1;
+    self->isDistanceArmed = false;
+    self->SetResliceCursorWidgetsProcessEvents(1);
+    self->SyncPlaneWidgetsFromResliceCursorPlanes();
+}
+
+void MyVtkNew::OnAngleEndInteraction(vtkObject* caller, unsigned long eventId, void* clientData, void* callData)
+{
+    Q_UNUSED(eventId);
+    Q_UNUSED(callData);
+    MyVtkNew* self = static_cast<MyVtkNew*>(clientData);
+    vtkAngleWidget* widget = vtkAngleWidget::SafeDownCast(caller);
+    if (!self || !widget)
+    {
+        return;
+    }
+    self->MarkViewInteracted(self->activeAngleViewIndex);
+    if (widget->GetWidgetState() != vtkAngleWidget::Manipulate)
+    {
+        return;
+    }
+
+    widget->SetProcessEvents(0);
+    widget->SetPriority(0.1);
+    if (self->activeAngleObserverTag != 0)
+    {
+        widget->RemoveObserver(self->activeAngleObserverTag);
+        self->activeAngleObserverTag = 0;
+    }
+    self->activeAngleWidget = nullptr;
+    self->activeAngleCallbackCommand = nullptr;
+    self->activeAngleViewIndex = -1;
+    self->isAngleArmed = false;
+    self->SetResliceCursorWidgetsProcessEvents(1);
+    self->SyncPlaneWidgetsFromResliceCursorPlanes();
 }
 
 void MyVtkNew::AddDistanceMeasurementToView(int i)
 {
-    if (!riw[i])
+    if (i < 0 || i >= 3 || !riw[i])
         return;
     CancelActiveDistanceMeasurement();
+    CancelActiveAngleMeasurement();
+    MarkViewInteracted(i);
+    SetResliceCursorWidgetsProcessEvents(0);
 
     // 检查上一个标注是否已绘制完成。若未完成则删除它，防止冗余的空白标注
     if (!historyDistanceWidgets[i].isEmpty())
@@ -1180,6 +1586,7 @@ void MyVtkNew::AddDistanceMeasurementToView(int i)
     vtkSmartPointer<vtkDistanceWidget> distanceWidget = vtkSmartPointer<vtkDistanceWidget>::New();
     distanceWidget->SetInteractor(riw[i]->GetResliceCursorWidget()->GetInteractor());
     distanceWidget->SetDefaultRenderer(riw[i]->GetRenderer());
+    distanceWidget->SetCurrentRenderer(riw[i]->GetRenderer());
     distanceWidget->CreateDefaultRepresentation();
 
     vtkDistanceRepresentation* rep = static_cast<vtkDistanceRepresentation*>(distanceWidget->GetRepresentation());
@@ -1190,6 +1597,7 @@ void MyVtkNew::AddDistanceMeasurementToView(int i)
 
     distanceWidget->SetPriority(1.0);
     distanceWidget->On();
+    distanceWidget->SetProcessEvents(1);
     activeDistanceWidget = distanceWidget;
     activeDistanceViewIndex = i;
     isDistanceArmed = true;
@@ -1205,16 +1613,23 @@ void MyVtkNew::AddDistanceMeasurementToView(int i)
 
 void MyVtkNew::on_pushButtonForAddAngle_clicked()
 {
-    for (int j = 0; j < 3; j++)
-    {
-        AddAngleToView(j);
-    }
+    const int targetView = DetermineTargetViewIndex();
+    AddAngleToView(targetView);
+}
+
+void MyVtkNew::on_pushButtonAddDistance_clicked() 
+{
+    AddDistanceMeasurementToView();
 }
 
 void MyVtkNew::AddAngleToView(int i)
 {
-    if (!riw[i])
+    if (i < 0 || i >= 3 || !riw[i])
         return;
+    CancelActiveDistanceMeasurement();
+    CancelActiveAngleMeasurement();
+    MarkViewInteracted(i);
+    SetResliceCursorWidgetsProcessEvents(0);
 
     // 检查上一个角度标注是否已绘制完成。若未完成则删除它
     if (!historyAngleWidgets[i].isEmpty())
@@ -1230,10 +1645,19 @@ void MyVtkNew::AddAngleToView(int i)
     vtkSmartPointer<vtkAngleWidget> angleWidget = vtkSmartPointer<vtkAngleWidget>::New();
     angleWidget->SetInteractor(riw[i]->GetResliceCursorWidget()->GetInteractor());
     angleWidget->SetDefaultRenderer(riw[i]->GetRenderer());
+    angleWidget->SetCurrentRenderer(riw[i]->GetRenderer());
     angleWidget->CreateDefaultRepresentation();
 
     angleWidget->SetPriority(1.0);
     angleWidget->On();
+    angleWidget->SetProcessEvents(1);
+    activeAngleWidget = angleWidget;
+    activeAngleViewIndex = i;
+    isAngleArmed = true;
+    activeAngleCallbackCommand = vtkSmartPointer<vtkCallbackCommand>::New();
+    activeAngleCallbackCommand->SetClientData(this);
+    activeAngleCallbackCommand->SetCallback(MyVtkNew::OnAngleEndInteraction);
+    activeAngleObserverTag = angleWidget->AddObserver(vtkCommand::EndInteractionEvent, activeAngleCallbackCommand);
 
     // 存入历史数组，用于长期显示和后期销毁
     historyAngleWidgets[i].append(angleWidget);
@@ -1272,7 +1696,37 @@ vtkSmartPointer<vtkPolyData> MyVtkNew::LoadPointsFromRaw(const std::string& file
 // -------------------------------------------------------------------------
 // 兼容性占位方法 (防止编译报错)
 // -------------------------------------------------------------------------
-void MyVtkNew::mouseMoveEvent(QMouseEvent* event) {}
+void MyVtkNew::mouseMoveEvent(QMouseEvent* event)
+{
+    Q_UNUSED(event);
+    QWidget* hovered = QApplication::widgetAt(QCursor::pos());
+    for (QWidget* w = hovered; w; w = w->parentWidget())
+    {
+        const int idx = GetViewIndexFromWidget(w);
+        if (idx >= 0)
+        {
+            MarkViewInteracted(idx);
+            break;
+        }
+    }
+    QMainWindow::mouseMoveEvent(event);
+}
+
+bool MyVtkNew::eventFilter(QObject* watched, QEvent* event)
+{
+    const QWidget* widget = qobject_cast<QWidget*>(watched);
+    const int idx = GetViewIndexFromWidget(widget);
+    if (idx >= 0 && event)
+    {
+        const QEvent::Type t = event->type();
+        if (t == QEvent::MouseButtonPress || t == QEvent::FocusIn || t == QEvent::Enter)
+        {
+            MaybeCancelActiveMeasurementsForView(idx);
+            MarkViewInteracted(idx);
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
 void MyVtkNew::rawSlice(int width, int height, int depth) {}
 void MyVtkNew::setupVTKPipeline(const QString& dicomDirectory) {}
 void MyVtkNew::dicomShow(const QString& dicomDirectory) {}
