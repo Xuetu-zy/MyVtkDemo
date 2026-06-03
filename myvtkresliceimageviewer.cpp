@@ -134,8 +134,15 @@ void MyVtkResliceImageViewer::SetColorWindow(double s)
 {
     if (!this->WindowLevel)
         return;
-    if (fabs(s) < 1.0)
-        s = (s < 0.0) ? -1.0 : 1.0;
+    // 业务强约束：WW 不允许负数，且限制到 16bit 显示范围。
+    if (s < 1.0)
+    {
+        s = 1.0;
+    }
+    if (s > 65535.0)
+    {
+        s = 65535.0;
+    }
     double rmin = this->GetColorLevel() - 0.5 * fabs(s);
     double rmax = rmin + fabs(s);
     if (vtkScalarsToColors* lut = this->GetLookupTable())
@@ -149,6 +156,15 @@ void MyVtkResliceImageViewer::SetColorLevel(double s)
 {
     if (!this->WindowLevel)
         return;
+    // 业务强约束：WL 固定在 [0, 65535]。
+    if (s < 0.0)
+    {
+        s = 0.0;
+    }
+    if (s > 65535.0)
+    {
+        s = 65535.0;
+    }
     double rmin = s - 0.5 * fabs(this->GetColorWindow());
     double rmax = rmin + fabs(this->GetColorWindow());
     if (vtkScalarsToColors* lut = this->GetLookupTable())
@@ -207,6 +223,14 @@ void MyVtkResliceImageViewer::SetThickMode(int mode)
     this->ResliceCursorWidget->SetRepresentation(resliceCursorRepNew);
     resliceCursorRepNew->SetLookupTable(resliceCursorRepOld->GetLookupTable());
     resliceCursorRepNew->SetWindowLevel(resliceCursorRepOld->GetWindow(),resliceCursorRepOld->GetLevel(),1);
+    // Thick/Non-Thick 切换会替换 representation，这里必须恢复可见性与交互配置。
+    resliceCursorRepNew->DisplayTextOff();
+    resliceCursorRepNew->BuildRepresentation();
+    this->ResliceCursorWidget->SetProcessEvents(1);
+    this->ResliceCursorWidget->ManageWindowLevelOn();
+    this->ResliceCursorWidget->SetManageWindowLevel(1);
+    this->ResliceCursorWidget->Modified();
+    this->Modified();
     this->ResliceCursorWidget->SetEnabled(e);
 }
 

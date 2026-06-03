@@ -124,13 +124,9 @@ public:
             {
                 window = this->Viewers[sourceView]->GetColorWindow();
             }
-            double range[2] = {0.0, 65535.0};
-            if (this->Viewers[sourceView]->GetInput())
-            {
-                this->Viewers[sourceView]->GetInput()->GetScalarRange(range);
-            }
-            window = clampToRange(window, 1.0, std::max(1.0, (range[1] - range[0]) * 4.0));
-            level = clampToRange(level, range[0] - fabs(window), range[1] + fabs(window));
+            // 业务约束：WW/WL 固定限制在 16-bit 显示范围，避免出现负值。
+            window = clampToRange(window, 1.0, 65535.0);
+            level = clampToRange(level, 0.0, 65535.0);
 
             this->InWindowLevelSync = true;
             for (int i = 0; i < 3; i++)
@@ -1082,28 +1078,70 @@ void MyVtkNew::resliceMode(int mode)
 
 void MyVtkNew::thickMode(int mode)
 {
+    auto reapplyCenterlineStyle = [this](int viewIndex) {
+        if (!riw[viewIndex] || !riw[viewIndex]->GetResliceCursorWidget())
+        {
+            return;
+        }
+        vtkResliceCursorLineRepresentation* rep = vtkResliceCursorLineRepresentation::SafeDownCast(
+            riw[viewIndex]->GetResliceCursorWidget()->GetRepresentation());
+        if (!rep || !rep->GetResliceCursorActor())
+        {
+            return;
+        }
+        // Thick 切换会重建 representation，需要重新应用十字线样式和可见性。
+        for (int line = 0; line < 3; ++line)
+        {
+            vtkProperty* centerLine = rep->GetResliceCursorActor()->GetCenterlineProperty(line);
+            if (!centerLine)
+            {
+                continue;
+            }
+            centerLine->SetRepresentationToWireframe();
+            centerLine->SetOpacity(1.0);
+            centerLine->SetLineWidth(1.5);
+        }
+        rep->GetResliceCursorActor()->GetCenterlineProperty(0)->SetColor(1.0, 0.0, 0.0);
+        rep->GetResliceCursorActor()->GetCenterlineProperty(1)->SetColor(0.0, 1.0, 0.0);
+        rep->GetResliceCursorActor()->GetCenterlineProperty(2)->SetColor(0.0, 0.0, 1.0);
+        rep->DisplayTextOff();
+        rep->BuildRepresentation();
+    };
+
     for (int i = 0; i < 3; i++)
     {
+        if (!riw[i])
+        {
+            continue;
+        }
         riw[i]->SetThickMode(mode ? 1 : 0);
+        reapplyCenterlineStyle(i);
         riw[i]->Render();
     }
 }
 
 void MyVtkNew::SetBlendMode(int m)
 {
-    // VTK 9.6: 通过 representation 获取底层的 vtkImageReslice，设置厚层混合模式
+    // Blend 仅在 Thick 模式下有效；非 Thick 时直接跳过，避免“切换后无变化”的误解。
     for (int i = 0; i < 3; i++)
     {
+        if (!riw[i] || !riw[i]->GetResliceCursorWidget() || riw[i]->GetThickMode() == 0)
+        {
+            continue;
+        }
         vtkResliceCursorRepresentation* rep =
             vtkResliceCursorRepresentation::SafeDownCast(riw[i]->GetResliceCursorWidget()->GetRepresentation());
-        if (rep)
+        if (!rep)
         {
-            vtkImageReslice* reslice = vtkImageReslice::SafeDownCast(rep->GetReslice());
-            if (reslice)
-            {
-                reslice->SetSlabMode(m);
-            }
+            continue;
         }
+        vtkImageReslice* reslice = vtkImageReslice::SafeDownCast(rep->GetReslice());
+        if (reslice)
+        {
+            reslice->SetSlabMode(m);
+            reslice->Modified();
+        }
+        rep->BuildRepresentation();
         riw[i]->Render();
     }
 }
