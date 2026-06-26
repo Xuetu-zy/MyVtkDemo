@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1507</width>
-    <height>1237</height>
+    <width>2560</width>
+    <height>1440</height>
    </rect>
   </property>
   <property name="maximumSize">
@@ -19,10 +19,36 @@
   <property name="windowTitle">
    <string>MyVtkNew</string>
   </property>
+  <property name="styleSheet">
+   <string notr="true">background-color: rgb(43, 48, 63);</string>
+  </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QGridLayout" name="gridLayout_4">
     <item row="0" column="1">
      <widget class="QPushButton" name="pushButtonOpenDicom">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">
+
+QPushButton{background-color: rgb(58, 64, 78);
+
+border-radius:10px;
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;}
+
+QPushButton:pressed{
+background-color: rgb(96, 108, 122);}
+
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;
+
+border: 1px solid rgb(121,121,121);</string>
+      </property>
       <property name="text">
        <string>打开图像</string>
       </property>
@@ -33,6 +59,29 @@
     </item>
     <item row="1" column="1">
      <widget class="QPushButton" name="pushButtonFor3D">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">
+
+QPushButton{background-color: rgb(58, 64, 78);
+
+border-radius:10px;
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;}
+
+QPushButton:pressed{
+background-color: rgb(96, 108, 122);}
+
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;
+
+border: 1px solid rgb(121,121,121);</string>
+      </property>
       <property name="text">
        <string>开始重建</string>
       </property>
@@ -40,6 +89,29 @@
     </item>
     <item row="2" column="1">
      <widget class="QPushButton" name="pushButton">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">
+
+QPushButton{background-color: rgb(58, 64, 78);
+
+border-radius:10px;
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;}
+
+QPushButton:pressed{
+background-color: rgb(96, 108, 122);}
+
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;
+
+border: 1px solid rgb(121,121,121);</string>
+      </property>
       <property name="text">
        <string>MPR</string>
       </property>
@@ -56,12 +128,46 @@
       <property name="maximumSize">
        <size>
         <width>16777215</width>
-        <height>100</height>
+        <height>200</height>
        </size>
       </property>
       <layout class="QGridLayout" name="gridLayout_5">
        <item row="0" column="1">
         <widget class="QLineEdit" name="lineEditWidth">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">
+QLineEdit {
+background-color: rgb(0, 0, 0);
+font: 20pt &quot;思源黑体 CN Regular&quot;;
+color: rgb(255, 255, 255);
+border:none;
+border-top-left-radius: 6px;
+border-top-right-radius: 6px;
+border-bottom-left-radius: 6px;
+border-bottom-right-radius: 6px;
+focus-background-color:rgb(0, 176, 180);
+}
+QLineEdit:focus {
+    color: rgb(255, 255, 255);
+    selection-color: white;   
+    border: 2px groove #3A404E;
+    border-radius: 10px;
+    padding: 2px 4px;
+}
+QLineEdit:edit-focus {
+    color: rgb(255, 255, 255);
+    selection-color: white;   
+    border: 2px groove #3A404E;
+    border-radius: 10px;
+    padding: 2px 4px;
+}</string>
+         </property>
          <property name="inputMask">
           <string/>
          </property>
@@ -73,15 +179,42 @@
          </property>
         </widget>
        </item>
-       <item row="1" column="0">
-        <widget class="QPushButton" name="pushButtonReadRaw">
-         <property name="text">
-          <string>读取Raw</string>
-         </property>
-        </widget>
-       </item>
        <item row="1" column="1">
         <widget class="QLineEdit" name="lineEditHeight">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">
+QLineEdit {
+background-color: rgb(0, 0, 0);
+font: 20pt &quot;思源黑体 CN Regular&quot;;
+color: rgb(255, 255, 255);
+border:none;
+border-top-left-radius: 6px;
+border-top-right-radius: 6px;
+border-bottom-left-radius: 6px;
+border-bottom-right-radius: 6px;
+focus-background-color:rgb(0, 176, 180);
+}
+QLineEdit:focus {
+    color: rgb(255, 255, 255);
+    selection-color: white;   
+    border: 2px groove #3A404E;
+    border-radius: 10px;
+    padding: 2px 4px;
+}
+QLineEdit:edit-focus {
+    color: rgb(255, 255, 255);
+    selection-color: white;   
+    border: 2px groove #3A404E;
+    border-radius: 10px;
+    padding: 2px 4px;
+}</string>
+         </property>
          <property name="text">
           <string>700</string>
          </property>
@@ -92,6 +225,40 @@
        </item>
        <item row="2" column="1">
         <widget class="QLineEdit" name="lineEditDepth">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">
+QLineEdit {
+background-color: rgb(0, 0, 0);
+font: 20pt &quot;思源黑体 CN Regular&quot;;
+color: rgb(255, 255, 255);
+border:none;
+border-top-left-radius: 6px;
+border-top-right-radius: 6px;
+border-bottom-left-radius: 6px;
+border-bottom-right-radius: 6px;
+focus-background-color:rgb(0, 176, 180);
+}
+QLineEdit:focus {
+    color: rgb(255, 255, 255);
+    selection-color: white;   
+    border: 2px groove #3A404E;
+    border-radius: 10px;
+    padding: 2px 4px;
+}
+QLineEdit:edit-focus {
+    color: rgb(255, 255, 255);
+    selection-color: white;   
+    border: 2px groove #3A404E;
+    border-radius: 10px;
+    padding: 2px 4px;
+}</string>
+         </property>
          <property name="text">
           <string>600</string>
          </property>
@@ -100,11 +267,53 @@
          </property>
         </widget>
        </item>
+       <item row="0" column="0" rowspan="3">
+        <widget class="QPushButton" name="pushButtonReadRaw">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">
+
+QPushButton{background-color: rgb(58, 64, 78);
+
+border-radius:10px;
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;}
+
+QPushButton:pressed{
+background-color: rgb(96, 108, 122);}
+
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;
+
+border: 1px solid rgb(121,121,121);</string>
+         </property>
+         <property name="text">
+          <string>读取Raw</string>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </item>
     <item row="4" column="1">
      <widget class="QFrame" name="frame">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>0</width>
+        <height>1000</height>
+       </size>
+      </property>
       <property name="frameShape">
        <enum>QFrame::Shape::StyledPanel</enum>
       </property>
@@ -114,6 +323,10 @@
       <layout class="QGridLayout" name="gridLayout_2">
        <item row="0" column="0">
         <widget class="QCheckBox" name="resliceModeCheckBox">
+         <property name="styleSheet">
+          <string notr="true">color: rgb(255, 255, 255);
+font: 20pt &quot;思源黑体 CN Regular&quot;;</string>
+         </property>
          <property name="text">
           <string>Oblique Reslice</string>
          </property>
@@ -121,6 +334,10 @@
        </item>
        <item row="1" column="0">
         <widget class="QCheckBox" name="thickModeCheckBox">
+         <property name="styleSheet">
+          <string notr="true">color: rgb(255, 255, 255);
+font: 20pt &quot;思源黑体 CN Regular&quot;;</string>
+         </property>
          <property name="text">
           <string>Thick Slab</string>
          </property>
@@ -128,52 +345,125 @@
        </item>
        <item row="2" column="0">
         <widget class="QGroupBox" name="blendModeGroupBox">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>42</width>
+           <height>500</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">
+QGroupBox {
+          
+         
+	background-color: rgb(58, 64, 78);
+          border-left: 1px solid rgb(75,79,88);
+          border-top: 70px solid rgb(75,79,88);
+          border-right: 1px solid rgb(75,79,88);
+          border-bottom: 1px solid rgb(75,79,88);
+          border-top-left-radius: 0px;
+border-top-right-radius: 0px;
+border-bottom-left-radius: 5px;
+border-bottom-right-radius: 5px;
+          margin-top: 0px;
+          min-width:40px;
+          min-height:30px;
+font: 36px &quot;思源黑体 CN Regular&quot;;
+}
+                                           
+QGroupBox::title {
+           subcontrol-origin: margin;
+           subcontrol-position: top center;
+           padding: 10px;
+           background-color: transparent;
+           color:white;
+}
+
+QGroupBox::indicator {
+           width: 0px;
+           height: 0px;
+}
+                                           
+QGroupBox::indicator:unchecked {
+}</string>
+         </property>
          <property name="title">
           <string>Blend mode</string>
          </property>
-         <widget class="QRadioButton" name="radioButton_Min">
-          <property name="geometry">
-           <rect>
-            <x>10</x>
-            <y>20</y>
-            <width>191</width>
-            <height>17</height>
-           </rect>
-          </property>
-          <property name="text">
-           <string>Min Intensity Blend</string>
-          </property>
-         </widget>
-         <widget class="QRadioButton" name="radioButton_Max">
-          <property name="geometry">
-           <rect>
-            <x>10</x>
-            <y>40</y>
-            <width>191</width>
-            <height>17</height>
-           </rect>
-          </property>
-          <property name="text">
-           <string>Max Intensity Blend</string>
-          </property>
-         </widget>
-         <widget class="QRadioButton" name="radioButton_Mean">
-          <property name="geometry">
-           <rect>
-            <x>10</x>
-            <y>60</y>
-            <width>111</width>
-            <height>17</height>
-           </rect>
-          </property>
-          <property name="text">
-           <string>Mean Blend</string>
-          </property>
-         </widget>
+         <layout class="QGridLayout" name="gridLayout_6">
+          <item row="0" column="0">
+           <widget class="QRadioButton" name="radioButton_Min">
+            <property name="styleSheet">
+             <string notr="true">color: rgb(255, 255, 255);
+font: 20pt &quot;思源黑体 CN Regular&quot;;</string>
+            </property>
+            <property name="text">
+             <string>Min Intensity Blend</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QRadioButton" name="radioButton_Max">
+            <property name="styleSheet">
+             <string notr="true">color: rgb(255, 255, 255);
+font: 20pt &quot;思源黑体 CN Regular&quot;;</string>
+            </property>
+            <property name="text">
+             <string>Max Intensity Blend</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QRadioButton" name="radioButton_Mean">
+            <property name="styleSheet">
+             <string notr="true">color: rgb(255, 255, 255);
+font: 20pt &quot;思源黑体 CN Regular&quot;;</string>
+            </property>
+            <property name="text">
+             <string>Mean Blend</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </widget>
        </item>
        <item row="3" column="0">
         <widget class="QPushButton" name="resetButton">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>66</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">
+
+QPushButton{background-color: rgb(58, 64, 78);
+
+border-radius:10px;
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;}
+
+QPushButton:pressed{
+background-color: rgb(96, 108, 122);}
+
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;
+
+border: 1px solid rgb(121,121,121);</string>
+         </property>
          <property name="text">
           <string>Reset</string>
          </property>
@@ -190,6 +480,35 @@
          <layout class="QVBoxLayout" name="verticalLayout_5">
           <item>
            <widget class="QPushButton" name="pushButtonAddDistance">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>66</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">
+
+QPushButton{background-color: rgb(58, 64, 78);
+
+border-radius:10px;
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;}
+
+QPushButton:pressed{
+background-color: rgb(96, 108, 122);}
+
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;
+
+border: 1px solid rgb(121,121,121);</string>
+            </property>
             <property name="text">
              <string>Add Distance On View</string>
             </property>
@@ -197,6 +516,35 @@
           </item>
           <item>
            <widget class="QPushButton" name="pushButtonForAddAngle">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>66</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">
+
+QPushButton{background-color: rgb(58, 64, 78);
+
+border-radius:10px;
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;}
+
+QPushButton:pressed{
+background-color: rgb(96, 108, 122);}
+
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;
+
+border: 1px solid rgb(121,121,121);</string>
+            </property>
             <property name="text">
              <string>Add Angle On View</string>
             </property>
@@ -204,6 +552,35 @@
           </item>
           <item>
            <widget class="QPushButton" name="pushButtonConvertRawSlicesToDicom">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>66</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">
+
+QPushButton{background-color: rgb(58, 64, 78);
+
+border-radius:10px;
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;}
+
+QPushButton:pressed{
+background-color: rgb(96, 108, 122);}
+
+color: rgb(255, 255, 255);
+font: 25pt &quot;思源黑体 CN Regular&quot;;
+
+border: 1px solid rgb(121,121,121);</string>
+            </property>
             <property name="text">
              <string>导出</string>
             </property>
@@ -219,9 +596,68 @@
      <widget class="QTabWidget" name="tabWidget">
       <property name="minimumSize">
        <size>
-        <width>1200</width>
+        <width>2000</width>
         <height>0</height>
        </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QTabBar{
+	background-color: rgb(0, 0, 0);
+	border:1px solid #000000;
+}
+QTabBar::tab{
+border: 0px solid #000000;
+color:#ffffff;
+margin:0px;
+min-width:545;
+min-height:80;
+font: 26pt &quot;思源黑体 CN Regular&quot;;
+font-weight:normal;
+
+padding: 1px;
+border-top-left-radius: 5px;
+border-top-right-radius: 5px;
+border-bottom-left-radius: 0px;
+border-bottom-right-radius: 0px;
+background-color: rgb(58, 64, 78);
+}
+
+QTabWidget::pane{
+border:1px solid #242424;
+selection-background-color:#606C7A;
+selection-color:#606C7A;
+alternate-background-color:#525252;
+gridline-color:#242424;
+}
+
+QTabBar::tab:hover{
+
+}
+QTabBar::tab:selected{
+border-style:solid;
+
+background-color: rgb(96, 108, 122);
+}
+
+QTabBar::tab:first:top:selected,QTabBar::tab:first:top:hover,QTabBar::tab:first:bottom:selected,QTabBar::tab:first:bottom:hover{
+border-left-width:1px;
+border-left-color:#797979;
+}
+
+QTabBar::tab:first:left:selected,QTabBar::tab:first:left:hover,QTabBar::tab:first:right:selected,QTabBar::tab:first:right:hover{
+border-top-width:1px;
+border-top-color:#797979;
+}
+
+QTabBar::tab:last:top:selected,QTabBar::tab:last:top:hover,QTabBar::tab:last:bottom:selected,QTabBar::tab:last:bottom:hover{
+border-right-width:1px;
+border-right-color:#797979;
+}
+
+QTabBar::tab:last:left:selected,QTabBar::tab:last:left:hover,QTabBar::tab:last:right:selected,QTabBar::tab:last:right:hover{
+border-bottom-width:1px;
+border-bottom-color:#797979;
+}</string>
       </property>
       <property name="currentIndex">
        <number>0</number>
@@ -341,79 +777,98 @@
        <attribute name="title">
         <string>体绘制</string>
        </attribute>
-       <widget class="QVTKOpenGLNativeWidget" name="widget3D_2" native="true">
+       <widget class="QWidget" name="widget_7" native="true">
         <property name="geometry">
          <rect>
-          <x>330</x>
-          <y>290</y>
-          <width>608</width>
-          <height>500</height>
+          <x>150</x>
+          <y>150</y>
+          <width>1451</width>
+          <height>891</height>
          </rect>
         </property>
-        <property name="styleSheet">
-         <string notr="true">background-color: rgb(85, 170, 0);</string>
-        </property>
-       </widget>
-       <widget class="QSlider" name="horizontalSliderVolume">
-        <property name="geometry">
-         <rect>
-          <x>330</x>
-          <y>250</y>
-          <width>611</width>
-          <height>31</height>
-         </rect>
-        </property>
-        <property name="orientation">
-         <enum>Qt::Orientation::Horizontal</enum>
-        </property>
-       </widget>
-       <widget class="QComboBox" name="comboBox">
-        <property name="geometry">
-         <rect>
-          <x>970</x>
-          <y>300</y>
-          <width>211</width>
-          <height>41</height>
-         </rect>
-        </property>
-        <item>
-         <property name="text">
-          <string>BONE</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Surface</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>BLOODVESSEL</string>
-         </property>
-        </item>
+        <layout class="QGridLayout" name="gridLayout_7">
+         <item row="0" column="0">
+          <widget class="QSlider" name="horizontalSliderVolume">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QVTKOpenGLNativeWidget" name="widget3D_2" native="true">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">background-color: rgb(85, 170, 0);</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1" alignment="Qt::AlignmentFlag::AlignTop">
+          <widget class="QComboBox" name="comboBox">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>300</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true"> QComboBox
+{
+background-color:rgb(0,0,0);
+color:rgb(255,255,255);
+border-radius: 5px;
+    padding: 1px 2px 1px 2px; 
+    min-width: 1em; 
+
+font: 22px &quot;思源黑体 CN Regular&quot;;
+}
+QComboBox::drop-down
+{
+	subcontrol-origin: padding;
+	subcontrol-position: center right;
+	width: 80px;
+	border:none;
+}
+
+QComboBox::down-arrow {image: url(:/Image/SystemConfig/下拉箭头.png);}
+QComboBox QAbstractItemView {background:#000000;color:#ffffff;padding-left:30px;}
+
+
+</string>
+           </property>
+           <item>
+            <property name="text">
+             <string>BONE</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Surface</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>BLOODVESSEL</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+        </layout>
        </widget>
       </widget>
      </widget>
     </item>
    </layout>
-  </widget>
-  <widget class="QMenuBar" name="menuBar">
-   <property name="geometry">
-    <rect>
-     <x>0</x>
-     <y>0</y>
-     <width>1507</width>
-     <height>33</height>
-    </rect>
-   </property>
-  </widget>
-  <widget class="QToolBar" name="mainToolBar">
-   <attribute name="toolBarArea">
-    <enum>TopToolBarArea</enum>
-   </attribute>
-   <attribute name="toolBarBreak">
-    <bool>false</bool>
-   </attribute>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
  </widget>

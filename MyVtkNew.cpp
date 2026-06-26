@@ -318,7 +318,7 @@ public:
     vtkResliceCursorWidget* RCW[3];
     MyVtkResliceImageViewer* Viewers[3] = {nullptr, nullptr, nullptr};
     MyVtkNew* MyVtkApp;
-    bool InWindowLevelSync = false;
+    bool InWindowLevelSync = false;   
 };
 
 // -------------------------------------------------------------------------
@@ -1849,7 +1849,85 @@ void MyVtkNew::on_pushButtonConvertRawSlicesToDicom_clicked()
 void MyVtkNew::ConvertRawSlicesToDicom(const std::string& outputFolder, const std::string& patientName,
                                        const std::string& patientID)
 {
-    qDebug() << "格式转换已执行。存储至：" << QString::fromStdString(outputFolder);
+    QString dirQt = QString::fromStdString(outputFolder) + "/OutPut";
+    if (!QDir().exists(dirQt) && !QDir().mkpath(dirQt))
+    {
+        qWarning() << "无法创建目录：" << dirQt;
+        return;
+    }
+
+    vtkImageData* imageData = rawReader->GetOutput();
+    int dims[3];
+    imageData->GetDimensions(dims);  // dims = {Columns, Rows, Slices} :contentReference[oaicite:0]{index=0}
+    double spacing[3];
+    imageData->GetSpacing(spacing);
+
+    // 2. 生成 Study 和 Series UID
+    char studyUID[100] = {0}, seriesUID[100] = {0}, sopUID[100] = {0};
+    dcmGenerateUniqueIdentifier(studyUID, SITE_INSTANCE_UID_ROOT);  // :contentReference[oaicite:1]{index=1}
+    dcmGenerateUniqueIdentifier(seriesUID, SITE_INSTANCE_UID_ROOT);
+
+    // 3. 遍历每个切片
+    for (int z = 0; z < dims[2]; ++z)
+    {
+        // 3.1 提取切片像素数据
+        unsigned short* slicePtr = static_cast<unsigned short*>(imageData->GetScalarPointer(0, 0, z));
+
+        // 3.2 构建 DICOM 文件结构
+        DcmFileFormat fileformat;
+        DcmDataset* dataset = fileformat.getDataset();
+
+        // 3.3 生成本切片 SOP Instance UID
+        dcmGenerateUniqueIdentifier(sopUID, SITE_INSTANCE_UID_ROOT);  // :contentReference[oaicite:2]{index=2}
+
+        // 3.4 插入患者与Study/Series 信息
+        dataset->putAndInsertString(DCM_PatientName, patientName.c_str());
+        dataset->putAndInsertString(DCM_PatientID, patientID.c_str());
+        dataset->putAndInsertString(DCM_StudyInstanceUID, studyUID);
+        dataset->putAndInsertString(DCM_SeriesInstanceUID, seriesUID);
+        dataset->putAndInsertString(DCM_Modality, "CT");
+
+        // 3.5 插入 SOP Class UID 与 SOP Instance UID
+        dataset->putAndInsertString(DCM_SOPClassUID,
+                                    UID_SecondaryCaptureImageStorage);  // :contentReference[oaicite:3]{index=3}
+        dataset->putAndInsertString(DCM_SOPInstanceUID, sopUID);        // :contentReference[oaicite:4]{index=4}
+
+        // 3.6 图像像素模块 (Image Pixel Module)
+        dataset->putAndInsertUint16(DCM_SamplesPerPixel,
+                                    1);  // 单通道灰度图：SamplesPerPixel = 1 :contentReference[oaicite:5]{index=5}
+        dataset->putAndInsertString(DCM_PhotometricInterpretation,
+                                    "MONOCHROME2");  // 灰度模式：MONOCHROME2 :contentReference[oaicite:6]{index=6}
+
+        // 3.7 像素编码属性 (Pixel Data Encoding)
+        dataset->putAndInsertUint16(DCM_Rows, dims[1]);
+        dataset->putAndInsertUint16(DCM_Columns, dims[0]);
+        dataset->putAndInsertUint16(DCM_BitsAllocated, 16);  // 每像素 16 位 :contentReference[oaicite:7]{index=7}
+        dataset->putAndInsertUint16(DCM_BitsStored, 16);     // 有效位：16 :contentReference[oaicite:8]{index=8}
+        dataset->putAndInsertUint16(DCM_HighBit,
+                                    15);  // HighBit = BitsStored - 1 = 15 :contentReference[oaicite:9]{index=9}
+        dataset->putAndInsertUint16(DCM_PixelRepresentation, 0);  // 0 = 无符号整数
+        dataset->putAndInsertString(DCM_WindowCenter, std::to_string(windowCenter).c_str());
+        dataset->putAndInsertString(DCM_WindowWidth, std::to_string(windowWidth).c_str());
+        // 位置和方向
+        char imagePos[64];
+        sprintf(imagePos, "0\\0\\%.6f", z * spacing[2]);
+        dataset->putAndInsertString(DCM_ImagePositionPatient, imagePos);
+        dataset->putAndInsertString(DCM_ImageOrientationPatient, "1\\0\\0\\0\\1\\0");
+        dataset->putAndInsertString(DCM_SliceThickness, std::to_string(spacing[2]).c_str());
+        dataset->putAndInsertString(DCM_PixelSpacing,
+                                    (std::to_string(spacing[1]) + "\\" + std::to_string(spacing[0])).c_str());
+
+        // 3.8 插入像素数据
+        dataset->putAndInsertUint16Array(
+            DCM_PixelData, slicePtr,
+            static_cast<unsigned long>(dims[0]) * dims[1]  // PixelData 数量 = Rows × Columns
+        );
+
+        // 3.9 生成并校验文件元信息头，然后写出 DICOM 文件
+        fileformat.validateMetaInfo(EXS_LittleEndianExplicit);  // 自动填充 (0002,0002),(0002,0003),(0002,0010) 等标记
+        QString fn = dirQt + QString("/slice%1.dcm").arg(z, 3, 10, QChar('0'));
+        fileformat.saveFile(fn.toStdString().c_str(), EXS_LittleEndianExplicit);
+    }
 }
 
 void MyVtkNew::SaveAsRawFile(vtkSmartPointer<vtkPolyData> polyData, const std::string& filename)

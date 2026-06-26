@@ -76,33 +76,34 @@ public slots:
     void on_pushButtonAddDistance_clicked();              // 测距按钮触发
 
     // 滚动条交互
-    void UpdateSliceCenter(int viewIndex, int value);
-    void on_horizontalSliderAxial_valueChanged(int value);
-    void on_horizontalSliderCoronal_valueChanged(int value);
-    void on_horizontalSliderSagittal_valueChanged(int value);
-    void on_horizontalSliderVolume_valueChanged(int value);
+    void UpdateSliceCenter(int viewIndex, int value);  // 更新切片中心坐标
+    void on_horizontalSliderAxial_valueChanged(int value);  // 更新轴向切片
+    void on_horizontalSliderCoronal_valueChanged(int value);  // 更新冠状切片
+    void on_horizontalSliderSagittal_valueChanged(int value);  // 更新矢状切片
+    void on_horizontalSliderVolume_valueChanged(int value);    //  更新体绘制透明度
 
     // 下拉框改变
-    void on_comboBox_currentTextChanged(const QString& text);
+    void on_comboBox_currentTextChanged(const QString& text);  // 选择体绘制模式
 
     // --- 自定义功能控制槽函数 ---
-    void updatePlaneTextEdit(int id, double window, double level);
-    static void WindowLevelCallback(vtkObject* caller, unsigned long eventId, void* clientData, void* callData);
+    void updatePlaneTextEdit(int id, double window, double level);  // 更新每个2D视图右下角的窗宽窗位文本
+    static void WindowLevelCallback(vtkObject* caller, unsigned long eventId, void* clientData,
+                                    void* callData);  // 窗宽窗位回调函数
 
-    void resliceMode(int mode);
-    void thickMode(int mode);
-    void SetBlendMode(int m);
-    void SetBlendModeToMaxIP();
-    void SetBlendModeToMinIP();
-    void SetBlendModeToMeanIP();
-    void ResetViews();
+    void resliceMode(int mode);  // 设置切片模式
+    void thickMode(int mode);    // 设置厚切模式
+    void SetBlendMode(int m);    // 设置混合模式
+    void SetBlendModeToMaxIP();  // 设置混合模式为最大密度投影
+    void SetBlendModeToMinIP();  // 设置混合模式为最小密度投影
+    void SetBlendModeToMeanIP();  // 设置混合模式为平均密度投影
+    void ResetViews();                    // 重置所有视图的相机和交互状态
     void AddDistanceMeasurementToView();                  // 测距按钮统一入口（内部判定目标视图）
 
 public:
     // 更新每个2D视图右下角的窗宽窗位文本
-    void UpdateCornerAnnotations();
-    void Render();
-    int DetermineTargetViewIndex() const;
+    void UpdateCornerAnnotations();  
+    void Render();      
+    int DetermineTargetViewIndex() const;   
     int HitTest2DViewByGlobalPos(const QPoint& globalPos) const;
     int GetViewIndexFromObject(const QObject* object) const;
     int GetViewIndexFromWidget(const QWidget* widget) const;
@@ -139,38 +140,38 @@ private:
     QVector<vtkSmartPointer<vtkDistanceWidget>> historyDistanceWidgets[3];  // 历史距离测量集合
     QVector<vtkSmartPointer<vtkAngleWidget>> historyAngleWidgets[3];        // 历史角度测量集合
 
-    vtkSmartPointer<vtkResliceImageViewerMeasurements> ResliceMeasurements;
+    vtkSmartPointer<vtkResliceImageViewerMeasurements> ResliceMeasurements;  // 2D 测量管理器
     vtkSmartPointer<vtkCellPicker> picker;  // 拾取器
 
     // 文字标注
     vtkSmartPointer<vtkTextActor> textActor[4];             // 视图方向标注
     vtkSmartPointer<vtkTextActor> peopleInforTextActor[4];  // 患者信息标注
     vtkSmartPointer<vtkTextActor> windowLevelTextActor[3];  // 每个2D视图右下角WW/WL
-    vtkSmartPointer<vtkOpenGLTextActor> text_axial = nullptr;
-    vtkSmartPointer<vtkDistanceWidget> activeDistanceWidget;
-    vtkSmartPointer<vtkCallbackCommand> activeDistanceCallbackCommand;
-    int activeDistanceViewIndex = -1;
-    bool isDistanceArmed = false;
-    unsigned long activeDistanceObserverTag = 0;
-    vtkSmartPointer<vtkAngleWidget> activeAngleWidget;
-    vtkSmartPointer<vtkCallbackCommand> activeAngleCallbackCommand;
-    int activeAngleViewIndex = -1;
-    bool isAngleArmed = false;
-    unsigned long activeAngleObserverTag = 0;
-    PendingMeasurementTool pendingMeasurementTool = PendingMeasurementTool::None;
-    int lastInteractedViewIndex = 2;
+    vtkSmartPointer<vtkOpenGLTextActor> text_axial = nullptr;  // Axial 视图文字标注
+    vtkSmartPointer<vtkDistanceWidget> activeDistanceWidget;   // 当前激活的测距组件
+    vtkSmartPointer<vtkCallbackCommand> activeDistanceCallbackCommand;  // 当前激活的测距回调命令
+    int activeDistanceViewIndex = -1;                                   // 当前激活的测距视图索引
+    bool isDistanceArmed = false;                                       // 当前是否处于测距激活状态
+    unsigned long activeDistanceObserverTag = 0;                        // 当前激活的测距观察者标签
+    vtkSmartPointer<vtkAngleWidget> activeAngleWidget;                  // 当前激活的测角组件
+    vtkSmartPointer<vtkCallbackCommand> activeAngleCallbackCommand;     // 当前激活的测角回调命令
+    int activeAngleViewIndex = -1;                                      // 当前激活的测角视图索引
+    bool isAngleArmed = false;                                          // 当前是否处于测角激活状态
+    unsigned long activeAngleObserverTag = 0;                           // 当前激活的测角观察者标签
+    PendingMeasurementTool pendingMeasurementTool = PendingMeasurementTool::None;  // 当前待激活的测量工具类型
+    int lastInteractedViewIndex = 2;  // 记录最后一次交互的视图索引，默认 Axial
 
     // 3D 视图
     vtkSmartPointer<vtkRenderer> ren;        // 3D场景渲染器 (对应 widget3D)
     vtkSmartPointer<vtkRenderer> renderer;   // 次级 3D 渲染器 (对应 widget3D_2 等)
     vtkSmartPointer<vtkVolume> volume;       // 体绘制对象
     vtkSmartPointer<vtkActor> surfaceActor;  // 面绘制 Actor 对象
-    vtkSmartPointer<vtkPiecewiseFunction> volumeGradientOpacity;
+    vtkSmartPointer<vtkPiecewiseFunction> volumeGradientOpacity;  // 体绘制梯度不透明度映射函数
     vtkSmartPointer<vtkPiecewiseFunction> compositeOpacity;  // 体绘制不透明度映射函数
 
     // 数据源与读取器
-    vtkSmartPointer<vtkDICOMImageReader> dicomReader;
-    vtkSmartPointer<vtkImageReader2> rawReader;
+    vtkSmartPointer<vtkDICOMImageReader> dicomReader;  // DICOM 数据读取器
+    vtkSmartPointer<vtkImageReader2> rawReader;   // RAW 数据读取器
     vtkSmartPointer<vtkImageData> mainImageData;  // 统一的核心三维体数据缓存
 
     // 全局图像信息
@@ -185,33 +186,37 @@ private:
     void InitializeVisualization(vtkSmartPointer<vtkImageData> imageData);
 
     // 3D 渲染特定模式方法
-    void BoneVolumeRendering();
-    void BloodVesselVolumeRendering();
-    void SurfaceRendering();
+    void BoneVolumeRendering();  // 骨体体绘制
+    void BloodVesselVolumeRendering();  // 血管体绘制
+    void SurfaceRendering();            // 表面绘制 (Marching Cubes)
 
     // 工具类方法
-    vtkSmartPointer<vtkPolyData> LoadPointsFromRaw(const std::string& filename);
-    void SaveAsRawFile(vtkSmartPointer<vtkPolyData> polyData, const std::string& filename);
+    vtkSmartPointer<vtkPolyData> LoadPointsFromRaw(const std::string& filename);  // 从 RAW 文件加载点云数据
+    void SaveAsRawFile(vtkSmartPointer<vtkPolyData> polyData,
+                       const std::string& filename);  // 将 PolyData 保存为 RAW 文件
     void ConvertRawSlicesToDicom(const std::string& outputFolder, const std::string& patientName,
-                                 const std::string& patientID);
+                                 const std::string& patientID);  // 将 RAW 切片序列转换为 DICOM 文件
 
     // 遗留方法声明，保留以防实现缺失
-    void readRaw(int width, int height, int depth);
-    void rawSlice(int width, int height, int depth);
-    void setupVTKPipeline(const QString& dicomDirectory);
-    void dicomShow(const QString& dicomDirectory);
-    void GenerateVirtual3DData(vtkSmartPointer<vtkImageData>& imageData);
-    void Expand2DTo3D(vtkSmartPointer<vtkImageData>& imageData2D, vtkSmartPointer<vtkImageData>& imageData3D);
+    void readRaw(int width, int height, int depth);  // 读取 RAW 数据
+    void rawSlice(int width, int height, int depth);  // 读取 RAW 数据并切片显示
+    void setupVTKPipeline(const QString& dicomDirectory);  // 设置 VTK 渲染管线
+    void dicomShow(const QString& dicomDirectory);         // 显示 DICOM 数据
+    void GenerateVirtual3DData(vtkSmartPointer<vtkImageData>& imageData);  // 生成虚拟三维数据
+    void Expand2DTo3D(vtkSmartPointer<vtkImageData>& imageData2D,
+                      vtkSmartPointer<vtkImageData>& imageData3D);  // 将二维数据扩展为三维数据
     void readDicomSeries(vtkSmartPointer<vtkImageViewer2>& viewer, QVTKOpenGLNativeWidget* widget,
-                         const QString& orientation);
-    void Reset2DViewCameras();
-    void ResetObliqueViewCameras();
-    void SetResliceCursorWidgetsProcessEvents(int enabled);
-    void SyncPlaneWidgetsFromResliceCursorPlanes();
-    void SyncSliceSlidersFromViews();
-    void ValidateInteractionReadiness();
-    static void OnDistanceEndInteraction(vtkObject* caller, unsigned long eventId, void* clientData, void* callData);
-    static void OnAngleEndInteraction(vtkObject* caller, unsigned long eventId, void* clientData, void* callData);
+                         const QString& orientation);        // 读取 DICOM 序列并显示
+    void Reset2DViewCameras();                               // 重置 2D 视图相机
+    void ResetObliqueViewCameras();                          // 重置斜切视图相机
+    void SetResliceCursorWidgetsProcessEvents(int enabled);  // 设置 ResliceCursorWidget 是否响应事件
+    void SyncPlaneWidgetsFromResliceCursorPlanes();  // 同步平面小部件位置到 ResliceCursor
+    void SyncSliceSlidersFromViews();                        // 同步切片滑块位置到视图
+    void ValidateInteractionReadiness();             // 验证交互准备状态
+    static void OnDistanceEndInteraction(vtkObject* caller, unsigned long eventId, void* clientData,
+                                         void* callData);  // 测距交互结束回调
+    static void OnAngleEndInteraction(vtkObject* caller, unsigned long eventId, void* clientData,
+                                      void* callData);  // 测角交互结束回调
 
 protected:
     void mouseMoveEvent(QMouseEvent* event);
