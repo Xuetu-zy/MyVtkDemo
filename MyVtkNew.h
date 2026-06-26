@@ -39,6 +39,8 @@
 #include <vtkVolumeProperty.h>
 
 class vtkResliceCursorCallback;
+class DcmDataset;
+class DcmTagKey;
 class QObject;
 class QEvent;
 
@@ -166,6 +168,7 @@ private:
     vtkSmartPointer<vtkRenderer> renderer;   // 次级 3D 渲染器 (对应 widget3D_2 等)
     vtkSmartPointer<vtkVolume> volume;       // 体绘制对象
     vtkSmartPointer<vtkActor> surfaceActor;  // 面绘制 Actor 对象
+    vtkSmartPointer<vtkPolyData> surfacePolyData;  // Surface 模式生成的网格数据，用于 STL 导出
     vtkSmartPointer<vtkPiecewiseFunction> volumeGradientOpacity;  // 体绘制梯度不透明度映射函数
     vtkSmartPointer<vtkPiecewiseFunction> compositeOpacity;  // 体绘制不透明度映射函数
 
@@ -196,6 +199,21 @@ private:
                        const std::string& filename);  // 将 PolyData 保存为 RAW 文件
     void ConvertRawSlicesToDicom(const std::string& outputFolder, const std::string& patientName,
                                  const std::string& patientID);  // 将 RAW 切片序列转换为 DICOM 文件
+    void ShowExportMenu();
+    void ExportDicomSeries();
+    void ExportCurrentViewPng();
+    void ExportSurfaceStl();
+    void ExportMeasurementsCsv();
+    QVTKOpenGLNativeWidget* SelectExportViewWidget();
+    bool WriteRenderWindowToPng(vtkRenderWindow* renderWindow, const QString& fileName);
+    QString FormatDicomNumber(double value) const;
+    unsigned short ClampToDicomUint16(double value) const;
+    QString NormalizeDicomText(const QString& value, const QString& fallback) const;
+    QString GenerateDicomUid(const char* prefix) const;
+    bool PutDicomString(DcmDataset* dataset, const DcmTagKey& tag, const QString& value,
+                        QString& error) const;
+    bool PutDicomUint16(DcmDataset* dataset, const DcmTagKey& tag, unsigned short value,
+                        QString& error) const;
 
     // 遗留方法声明，保留以防实现缺失
     void readRaw(int width, int height, int depth);  // 读取 RAW 数据

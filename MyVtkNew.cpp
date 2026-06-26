@@ -21,22 +21,31 @@
 #include "vtkResliceImageViewer.h"
 #include "vtkResliceImageViewerMeasurements.h"
 
+#include <QAction>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QPainter>
 #include <QApplication>
+#include <QDateTime>
 #include <QDebug>
 #include <QCursor>
 #include <QEvent>
+#include <QInputDialog>
+#include <QMenu>
 #include <QMouseEvent>
+#include <QStringList>
+#include <QTextStream>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QVTKOpenGLNativeWidget.h>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <vector>
 #include <qmessagebox.h>
 #include <vtkActor2D.h>
+#include <vtkAngleRepresentation.h>
 #include <vtkAngleRepresentation2D.h>
 #include <vtkAutoInit.h>
 #include <vtkColorTransferFunction.h>
@@ -70,6 +79,7 @@
 #include <vtkPlane.h>
 #include <vtkPlaneSource.h>
 #include <vtkPointHandleRepresentation2D.h>
+#include <vtkPointData.h>
 #include <vtkPolyDataNormals.h>
 #include <vtkProperty.h>
 #include <vtkRenderWindow.h>
@@ -77,9 +87,12 @@
 #include <vtkResliceCursorActor.h>
 #include <vtkResliceCursorLineRepresentation.h>
 #include <vtkResliceCursorThickLineRepresentation.h>
+#include <vtkSTLWriter.h>
 #include <vtkStripper.h>
 #include <vtkTextProperty.h>
+#include <vtkTriangleFilter.h>
 #include <vtkVolumeProperty.h>
+#include <vtkWindowToImageFilter.h>
 
 // -------------------------------------------------------------------------
 // VTK 9 环境下必须配置的初始化宏，保证 OpenGL2 与交互系统的链接正常
@@ -829,9 +842,11 @@ void MyVtkNew::SurfaceRendering()
     marchingCubes->SetInputData(mainImageData);
     marchingCubes->SetValue(0, threshold);
     marchingCubes->Update();
+    surfacePolyData = vtkSmartPointer<vtkPolyData>::New();
+    surfacePolyData->DeepCopy(marchingCubes->GetOutput());
 
     vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputData(marchingCubes->GetOutput());
+    mapper->SetInputData(surfacePolyData);
     mapper->ScalarVisibilityOff();
 
     // 使用类成员变量保存网格 actor
@@ -1837,97 +1852,506 @@ void MyVtkNew::AddAngleToView(int i)
 // -------------------------------------------------------------------------
 void MyVtkNew::on_pushButtonConvertRawSlicesToDicom_clicked()
 {
-    QString dir = QFileDialog::getExistingDirectory(this, tr("Select Output Folder"));
-    if (dir.isEmpty())
+    ShowExportMenu();
+}
+
+void MyVtkNew::ShowExportMenu()
+{
+    QMenu menu(this);
+    QAction* exportDicom = menu.addAction(QString::fromUtf8("DICOM序列"));
+    QAction* exportPng = menu.addAction(QString::fromUtf8("当前视图PNG"));
+    QAction* exportStl = menu.addAction(QString::fromUtf8("3D模型STL"));
+    QAction* exportCsv = menu.addAction(QString::fromUtf8("测量结果CSV"));
+
+    QAction* selected = menu.exec(ui->pushButtonConvertRawSlicesToDicom->mapToGlobal(
+        QPoint(0, ui->pushButtonConvertRawSlicesToDicom->height())));
+    if (!selected)
+    {
         return;
-    std::string outputFolder = dir.toStdString();
-    std::string patientName = "Unknown";
-    std::string patientID = "ID0001";
-    ConvertRawSlicesToDicom(outputFolder, patientName, patientID);
+    }
+    if (selected == exportDicom)
+    {
+        ExportDicomSeries();
+    }
+    else if (selected == exportPng)
+    {
+        ExportCurrentViewPng();
+    }
+    else if (selected == exportStl)
+    {
+        ExportSurfaceStl();
+    }
+    else if (selected == exportCsv)
+    {
+        ExportMeasurementsCsv();
+    }
+}
+
+QString MyVtkNew::FormatDicomNumber(double value) const
+{
+    if (!std::isfinite(value))
+    {
+        value = 0.0;
+    }
+    return QString::number(value, 'g', 12);
+}
+
+unsigned short MyVtkNew::ClampToDicomUint16(double value) const
+{
+    if (!std::isfinite(value) || value < 0.0)
+    {
+        return 0;
+    }
+    if (value > 65535.0)
+    {
+        return 65535;
+    }
+    return static_cast<unsigned short>(std::lround(value));
+}
+
+QString MyVtkNew::NormalizeDicomText(const QString& value, const QString& fallback) const
+{
+    QString normalized = value.trimmed();
+    if (normalized.isEmpty())
+    {
+        normalized = fallback;
+    }
+    normalized.replace('\\', '_');
+    return normalized;
+}
+
+QString MyVtkNew::GenerateDicomUid(const char* prefix) const
+{
+    char uid[100] = {0};
+    dcmGenerateUniqueIdentifier(uid, prefix);
+    return QString::fromLatin1(uid);
+}
+
+bool MyVtkNew::PutDicomString(DcmDataset* dataset, const DcmTagKey& tag, const QString& value,
+                              QString& error) const
+{
+    const QByteArray bytes = value.toUtf8();
+    const OFCondition result = dataset->putAndInsertString(tag, bytes.constData());
+    if (result.bad())
+    {
+        error = QString::fromUtf8(result.text());
+        return false;
+    }
+    return true;
+}
+
+bool MyVtkNew::PutDicomUint16(DcmDataset* dataset, const DcmTagKey& tag, unsigned short value,
+                              QString& error) const
+{
+    const OFCondition result = dataset->putAndInsertUint16(tag, value);
+    if (result.bad())
+    {
+        error = QString::fromUtf8(result.text());
+        return false;
+    }
+    return true;
+}
+
+void MyVtkNew::ExportDicomSeries()
+{
+    QString dir = QFileDialog::getExistingDirectory(this, QString::fromUtf8("选择DICOM导出目录"));
+    if (dir.isEmpty())
+    {
+        return;
+    }
+    ConvertRawSlicesToDicom(dir.toStdString(), "Unknown", "ID0001");
+}
+
+QVTKOpenGLNativeWidget* MyVtkNew::SelectExportViewWidget()
+{
+    // PNG 导出只导出当前某一个渲染窗口，不导出整个 UI。
+    // 这里让用户明确选择视图，避免依赖 focus/hover 造成导出对象不确定。
+    QStringList viewNames;
+    viewNames << QString::fromUtf8("Axial 横截面") << QString::fromUtf8("Coronal 冠状位")
+              << QString::fromUtf8("Sagittal 矢状位") << QString::fromUtf8("3D 切面")
+              << QString::fromUtf8("3D 体绘制/表面");
+
+    bool ok = false;
+    const QString selected =
+        QInputDialog::getItem(this, QString::fromUtf8("选择导出视图"),
+                              QString::fromUtf8("视图："), viewNames, 0, false, &ok);
+    if (!ok || selected.isEmpty())
+    {
+        return nullptr;
+    }
+
+    if (selected == viewNames[0])
+    {
+        return ui->widgetAxial;
+    }
+    if (selected == viewNames[1])
+    {
+        return ui->widgetCoronal;
+    }
+    if (selected == viewNames[2])
+    {
+        return ui->widgetSagittal;
+    }
+    if (selected == viewNames[3])
+    {
+        return ui->widget3D;
+    }
+    return ui->widget3D_2;
+}
+
+bool MyVtkNew::WriteRenderWindowToPng(vtkRenderWindow* renderWindow, const QString& fileName)
+{
+    if (!renderWindow || fileName.isEmpty())
+    {
+        return false;
+    }
+
+    // 先强制 Render，再从 back buffer 取图，避免导出到上一帧或黑图。
+    renderWindow->Render();
+
+    vtkSmartPointer<vtkWindowToImageFilter> windowToImage =
+        vtkSmartPointer<vtkWindowToImageFilter>::New();
+    windowToImage->SetInput(renderWindow);
+    windowToImage->SetScale(1);
+    windowToImage->SetInputBufferTypeToRGBA();
+    windowToImage->ReadFrontBufferOff();
+    windowToImage->Update();
+
+    if (QFile::exists(fileName))
+    {
+        QFile::remove(fileName);
+    }
+
+    vtkSmartPointer<vtkPNGWriter> writer = vtkSmartPointer<vtkPNGWriter>::New();
+    writer->SetFileName(fileName.toLocal8Bit().constData());
+    writer->SetInputConnection(windowToImage->GetOutputPort());
+    writer->Write();
+
+    QFile outputFile(fileName);
+    return outputFile.exists() && outputFile.size() > 0;
+}
+
+void MyVtkNew::ExportCurrentViewPng()
+{
+    QVTKOpenGLNativeWidget* viewWidget = SelectExportViewWidget();
+    if (!viewWidget)
+    {
+        return;
+    }
+    if (!viewWidget->renderWindow())
+    {
+        QMessageBox::warning(this, QString::fromUtf8("导出失败"), QString::fromUtf8("当前视图没有可导出的渲染窗口。"));
+        return;
+    }
+
+    QString fileName = QFileDialog::getSaveFileName(this, QString::fromUtf8("导出当前视图PNG"), QString(),
+                                                    QString::fromUtf8("PNG 图像 (*.png)"));
+    if (fileName.isEmpty())
+    {
+        return;
+    }
+    if (!fileName.endsWith(QString::fromLatin1(".png"), Qt::CaseInsensitive))
+    {
+        fileName += QString::fromLatin1(".png");
+    }
+
+    if (!WriteRenderWindowToPng(viewWidget->renderWindow(), fileName))
+    {
+        QMessageBox::warning(this, QString::fromUtf8("导出失败"),
+                             QString::fromUtf8("PNG 文件写入失败：%1").arg(fileName));
+        return;
+    }
+
+    QMessageBox::information(this, QString::fromUtf8("导出完成"),
+                             QString::fromUtf8("PNG 已导出：\n%1").arg(fileName));
+}
+
+void MyVtkNew::ExportSurfaceStl()
+{
+    if (!surfacePolyData || surfacePolyData->GetNumberOfPoints() == 0 ||
+        surfacePolyData->GetNumberOfCells() == 0)
+    {
+        QMessageBox::warning(this, QString::fromUtf8("导出失败"),
+                             QString::fromUtf8("当前没有可导出的 Surface 网格，请先切换到 Surface 模式生成模型。"));
+        return;
+    }
+
+    QString fileName = QFileDialog::getSaveFileName(this, QString::fromUtf8("导出3D模型STL"), QString(),
+                                                    QString::fromUtf8("STL 模型 (*.stl)"));
+    if (fileName.isEmpty())
+    {
+        return;
+    }
+    if (!fileName.endsWith(QString::fromLatin1(".stl"), Qt::CaseInsensitive))
+    {
+        fileName += QString::fromLatin1(".stl");
+    }
+
+    // STL 要求三角面片，导出前统一经过 vtkTriangleFilter，避免四边形/多边形导致读取兼容性问题。
+    vtkSmartPointer<vtkTriangleFilter> triangleFilter = vtkSmartPointer<vtkTriangleFilter>::New();
+    triangleFilter->SetInputData(surfacePolyData);
+    triangleFilter->Update();
+
+    vtkSmartPointer<vtkSTLWriter> writer = vtkSmartPointer<vtkSTLWriter>::New();
+    writer->SetFileName(fileName.toLocal8Bit().constData());
+    writer->SetInputConnection(triangleFilter->GetOutputPort());
+    if (QFile::exists(fileName))
+    {
+        QFile::remove(fileName);
+    }
+    writer->Write();
+
+    QFile outputFile(fileName);
+    if (!outputFile.exists() || outputFile.size() == 0)
+    {
+        QMessageBox::warning(this, QString::fromUtf8("导出失败"),
+                             QString::fromUtf8("STL 文件写入失败：%1").arg(fileName));
+        return;
+    }
+
+    QMessageBox::information(this, QString::fromUtf8("导出完成"),
+                             QString::fromUtf8("STL 已导出：\n%1").arg(fileName));
+}
+
+void MyVtkNew::ExportMeasurementsCsv()
+{
+    QString fileName = QFileDialog::getSaveFileName(this, QString::fromUtf8("导出测量结果CSV"), QString(),
+                                                    QString::fromUtf8("CSV 文件 (*.csv)"));
+    if (fileName.isEmpty())
+    {
+        return;
+    }
+    if (!fileName.endsWith(QString::fromLatin1(".csv"), Qt::CaseInsensitive))
+    {
+        fileName += QString::fromLatin1(".csv");
+    }
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+    {
+        QMessageBox::warning(this, QString::fromUtf8("导出失败"),
+                             QString::fromUtf8("CSV 文件无法写入：%1").arg(fileName));
+        return;
+    }
+
+    const QString viewNames[3] = {QString::fromLatin1("Sagittal"), QString::fromLatin1("Coronal"),
+                                  QString::fromLatin1("Axial")};
+    QTextStream stream(&file);
+    stream << "type,view,value,unit,p1_x,p1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z\n";
+
+    int exportedCount = 0;
+    for (int viewIndex = 0; viewIndex < 3; ++viewIndex)
+    {
+        for (const auto& widget : historyDistanceWidgets[viewIndex])
+        {
+            // 只导出已完成测量；未完成 widget 可能只有 0/1 个点，写出会造成脏数据。
+            if (!widget || widget->GetWidgetState() != vtkDistanceWidget::Manipulate)
+            {
+                continue;
+            }
+
+            vtkDistanceRepresentation* rep =
+                vtkDistanceRepresentation::SafeDownCast(widget->GetRepresentation());
+            if (!rep)
+            {
+                continue;
+            }
+
+            double p1[3] = {0.0, 0.0, 0.0};
+            double p2[3] = {0.0, 0.0, 0.0};
+            rep->GetPoint1WorldPosition(p1);
+            rep->GetPoint2WorldPosition(p2);
+            stream << "Distance," << viewNames[viewIndex] << "," << FormatDicomNumber(rep->GetDistance())
+                   << ",mm," << FormatDicomNumber(p1[0]) << "," << FormatDicomNumber(p1[1]) << ","
+                   << FormatDicomNumber(p1[2]) << "," << FormatDicomNumber(p2[0]) << ","
+                   << FormatDicomNumber(p2[1]) << "," << FormatDicomNumber(p2[2]) << ",,,\n";
+            ++exportedCount;
+        }
+
+        for (const auto& widget : historyAngleWidgets[viewIndex])
+        {
+            // Angle 也按同一规则：只有三点完成并进入 Manipulate 后才导出。
+            if (!widget || widget->GetWidgetState() != vtkAngleWidget::Manipulate)
+            {
+                continue;
+            }
+
+            vtkAngleRepresentation* rep = vtkAngleRepresentation::SafeDownCast(widget->GetRepresentation());
+            if (!rep)
+            {
+                continue;
+            }
+
+            double p1[3] = {0.0, 0.0, 0.0};
+            double center[3] = {0.0, 0.0, 0.0};
+            double p2[3] = {0.0, 0.0, 0.0};
+            rep->GetPoint1WorldPosition(p1);
+            rep->GetCenterWorldPosition(center);
+            rep->GetPoint2WorldPosition(p2);
+            stream << "Angle," << viewNames[viewIndex] << "," << FormatDicomNumber(rep->GetAngle())
+                   << ",degree," << FormatDicomNumber(p1[0]) << "," << FormatDicomNumber(p1[1]) << ","
+                   << FormatDicomNumber(p1[2]) << "," << FormatDicomNumber(center[0]) << ","
+                   << FormatDicomNumber(center[1]) << "," << FormatDicomNumber(center[2]) << ","
+                   << FormatDicomNumber(p2[0]) << "," << FormatDicomNumber(p2[1]) << ","
+                   << FormatDicomNumber(p2[2]) << "\n";
+            ++exportedCount;
+        }
+    }
+
+    file.close();
+    if (exportedCount == 0)
+    {
+        QFile::remove(fileName);
+        QMessageBox::warning(this, QString::fromUtf8("导出失败"), QString::fromUtf8("当前没有已完成的测量结果。"));
+        return;
+    }
+
+    QMessageBox::information(this, QString::fromUtf8("导出完成"),
+                             QString::fromUtf8("已导出 %1 条测量结果：\n%2")
+                                 .arg(exportedCount)
+                                 .arg(fileName));
 }
 
 void MyVtkNew::ConvertRawSlicesToDicom(const std::string& outputFolder, const std::string& patientName,
                                        const std::string& patientID)
 {
-    QString dirQt = QString::fromStdString(outputFolder) + "/OutPut";
-    if (!QDir().exists(dirQt) && !QDir().mkpath(dirQt))
+    if (!mainImageData || mainImageData->GetNumberOfPoints() == 0 || !mainImageData->GetPointData() ||
+        !mainImageData->GetPointData()->GetScalars())
     {
-        qWarning() << "无法创建目录：" << dirQt;
+        QMessageBox::warning(this, QString::fromUtf8("导出失败"), QString::fromUtf8("当前没有可导出的图像数据。"));
         return;
     }
 
-    vtkImageData* imageData = rawReader->GetOutput();
-    int dims[3];
-    imageData->GetDimensions(dims);  // dims = {Columns, Rows, Slices} :contentReference[oaicite:0]{index=0}
-    double spacing[3];
-    imageData->GetSpacing(spacing);
+    QDir exportDir(QString::fromStdString(outputFolder));
+    if (!exportDir.exists() && !exportDir.mkpath("."))
+    {
+        QMessageBox::warning(this, QString::fromUtf8("导出失败"),
+                             QString::fromUtf8("无法创建输出目录：%1").arg(exportDir.absolutePath()));
+        return;
+    }
 
-    // 2. 生成 Study 和 Series UID
-    char studyUID[100] = {0}, seriesUID[100] = {0}, sopUID[100] = {0};
-    dcmGenerateUniqueIdentifier(studyUID, SITE_INSTANCE_UID_ROOT);  // :contentReference[oaicite:1]{index=1}
-    dcmGenerateUniqueIdentifier(seriesUID, SITE_INSTANCE_UID_ROOT);
+    int dims[3] = {0};
+    double spacing[3] = {1.0, 1.0, 1.0};
+    double origin[3] = {0.0, 0.0, 0.0};
+    mainImageData->GetDimensions(dims);
+    mainImageData->GetSpacing(spacing);
+    mainImageData->GetOrigin(origin);
 
-    // 3. 遍历每个切片
+    if (dims[0] <= 0 || dims[1] <= 0 || dims[2] <= 0)
+    {
+        QMessageBox::warning(this, QString::fromUtf8("导出失败"), QString::fromUtf8("当前图像维度无效。"));
+        return;
+    }
+
+    QString exportPatientName =
+        NormalizeDicomText(QString::fromStdString(patientName), QString::fromUtf8("Unknown"));
+    QString exportPatientID =
+        NormalizeDicomText(QString::fromStdString(patientID), QString::fromUtf8("ID0001"));
+    if (dicomReader)
+    {
+        if (const char* dicomPatientName = dicomReader->GetPatientName())
+        {
+            exportPatientName = NormalizeDicomText(QString::fromUtf8(dicomPatientName), exportPatientName);
+        }
+    }
+
+    const QString studyUID = GenerateDicomUid(SITE_STUDY_UID_ROOT);
+    const QString seriesUID = GenerateDicomUid(SITE_SERIES_UID_ROOT);
+    const QDateTime exportTime = QDateTime::currentDateTime();
+    const QString studyDate = exportTime.toString("yyyyMMdd");
+    const QString studyTime = exportTime.toString("HHmmss");
+    const QString pixelSpacing = FormatDicomNumber(spacing[1]) + "\\" + FormatDicomNumber(spacing[0]);
+    const QString sliceThickness = FormatDicomNumber(std::fabs(spacing[2]) > 0.0 ? std::fabs(spacing[2]) : 1.0);
+    const int slicePixelCount = dims[0] * dims[1];
+    std::vector<unsigned short> pixelBuffer(static_cast<size_t>(slicePixelCount));
+
     for (int z = 0; z < dims[2]; ++z)
     {
-        // 3.1 提取切片像素数据
-        unsigned short* slicePtr = static_cast<unsigned short*>(imageData->GetScalarPointer(0, 0, z));
+        for (int y = 0; y < dims[1]; ++y)
+        {
+            for (int x = 0; x < dims[0]; ++x)
+            {
+                const double value = mainImageData->GetScalarComponentAsDouble(x, y, z, 0);
+                pixelBuffer[static_cast<size_t>(y * dims[0] + x)] = ClampToDicomUint16(value);
+            }
+        }
 
-        // 3.2 构建 DICOM 文件结构
-        DcmFileFormat fileformat;
-        DcmDataset* dataset = fileformat.getDataset();
+        QString error;
+        const QString sopInstanceUID = GenerateDicomUid(SITE_INSTANCE_UID_ROOT);
+        DcmFileFormat fileFormat;
+        DcmDataset* dataset = fileFormat.getDataset();
+        const QString instanceNumber = QString::number(z + 1);
+        const QString imagePosition = FormatDicomNumber(origin[0]) + "\\" + FormatDicomNumber(origin[1]) + "\\" +
+                                      FormatDicomNumber(origin[2] + spacing[2] * z);
+        const QString fileName = exportDir.filePath(QString("IM_%1.dcm").arg(z + 1, 4, 10, QChar('0')));
 
-        // 3.3 生成本切片 SOP Instance UID
-        dcmGenerateUniqueIdentifier(sopUID, SITE_INSTANCE_UID_ROOT);  // :contentReference[oaicite:2]{index=2}
+        bool ok = true;
+        ok = ok && PutDicomString(dataset, DCM_SOPClassUID, QString::fromLatin1(UID_CTImageStorage), error);
+        ok = ok && PutDicomString(dataset, DCM_SOPInstanceUID, sopInstanceUID, error);
+        ok = ok && PutDicomString(dataset, DCM_PatientName, exportPatientName, error);
+        ok = ok && PutDicomString(dataset, DCM_PatientID, exportPatientID, error);
+        ok = ok && PutDicomString(dataset, DCM_StudyInstanceUID, studyUID, error);
+        ok = ok && PutDicomString(dataset, DCM_SeriesInstanceUID, seriesUID, error);
+        ok = ok && PutDicomString(dataset, DCM_StudyID, exportPatientID, error);
+        ok = ok && PutDicomString(dataset, DCM_StudyDate, studyDate, error);
+        ok = ok && PutDicomString(dataset, DCM_StudyTime, studyTime, error);
+        ok = ok && PutDicomString(dataset, DCM_SpecificCharacterSet, QString::fromLatin1("ISO_IR 192"), error);
+        ok = ok && PutDicomString(dataset, DCM_Modality, QString::fromLatin1("CT"), error);
+        ok = ok && PutDicomString(dataset, DCM_ImageType, QString::fromLatin1("DERIVED\\SECONDARY"), error);
+        ok = ok && PutDicomString(dataset, DCM_SeriesNumber, QString::fromLatin1("1"), error);
+        ok = ok && PutDicomString(dataset, DCM_InstanceNumber, instanceNumber, error);
+        ok = ok && PutDicomUint16(dataset, DCM_SamplesPerPixel, 1, error);
+        ok = ok && PutDicomString(dataset, DCM_PhotometricInterpretation, QString::fromLatin1("MONOCHROME2"), error);
+        ok = ok && PutDicomUint16(dataset, DCM_Rows, static_cast<unsigned short>(dims[1]), error);
+        ok = ok && PutDicomUint16(dataset, DCM_Columns, static_cast<unsigned short>(dims[0]), error);
+        ok = ok && PutDicomUint16(dataset, DCM_BitsAllocated, 16, error);
+        ok = ok && PutDicomUint16(dataset, DCM_BitsStored, 16, error);
+        ok = ok && PutDicomUint16(dataset, DCM_HighBit, 15, error);
+        ok = ok && PutDicomUint16(dataset, DCM_PixelRepresentation, 0, error);
+        ok = ok && PutDicomString(dataset, DCM_WindowCenter, QString::number(windowCenter), error);
+        ok = ok && PutDicomString(dataset, DCM_WindowWidth, QString::number(windowWidth), error);
+        ok = ok && PutDicomString(dataset, DCM_PixelSpacing, pixelSpacing, error);
+        ok = ok && PutDicomString(dataset, DCM_SliceThickness, sliceThickness, error);
+        ok = ok && PutDicomString(dataset, DCM_ImagePositionPatient, imagePosition, error);
+        ok = ok && PutDicomString(dataset, DCM_ImageOrientationPatient, QString::fromLatin1("1\\0\\0\\0\\1\\0"),
+                                  error);
+        ok = ok && PutDicomString(dataset, DCM_SliceLocation, FormatDicomNumber(origin[2] + spacing[2] * z), error);
 
-        // 3.4 插入患者与Study/Series 信息
-        dataset->putAndInsertString(DCM_PatientName, patientName.c_str());
-        dataset->putAndInsertString(DCM_PatientID, patientID.c_str());
-        dataset->putAndInsertString(DCM_StudyInstanceUID, studyUID);
-        dataset->putAndInsertString(DCM_SeriesInstanceUID, seriesUID);
-        dataset->putAndInsertString(DCM_Modality, "CT");
+        OFCondition pixelResult = EC_Normal;
+        if (ok)
+        {
+            pixelResult = dataset->putAndInsertUint16Array(DCM_PixelData, pixelBuffer.data(),
+                                                           static_cast<unsigned long>(pixelBuffer.size()));
+            if (pixelResult.bad())
+            {
+                ok = false;
+                error = QString::fromUtf8(pixelResult.text());
+            }
+        }
 
-        // 3.5 插入 SOP Class UID 与 SOP Instance UID
-        dataset->putAndInsertString(DCM_SOPClassUID,
-                                    UID_SecondaryCaptureImageStorage);  // :contentReference[oaicite:3]{index=3}
-        dataset->putAndInsertString(DCM_SOPInstanceUID, sopUID);        // :contentReference[oaicite:4]{index=4}
+        OFCondition saveResult = EC_Normal;
+        if (ok)
+        {
+            saveResult = fileFormat.saveFile(fileName.toLocal8Bit().constData(), EXS_LittleEndianExplicit);
+            if (saveResult.bad())
+            {
+                ok = false;
+                error = QString::fromUtf8(saveResult.text());
+            }
+        }
 
-        // 3.6 图像像素模块 (Image Pixel Module)
-        dataset->putAndInsertUint16(DCM_SamplesPerPixel,
-                                    1);  // 单通道灰度图：SamplesPerPixel = 1 :contentReference[oaicite:5]{index=5}
-        dataset->putAndInsertString(DCM_PhotometricInterpretation,
-                                    "MONOCHROME2");  // 灰度模式：MONOCHROME2 :contentReference[oaicite:6]{index=6}
-
-        // 3.7 像素编码属性 (Pixel Data Encoding)
-        dataset->putAndInsertUint16(DCM_Rows, dims[1]);
-        dataset->putAndInsertUint16(DCM_Columns, dims[0]);
-        dataset->putAndInsertUint16(DCM_BitsAllocated, 16);  // 每像素 16 位 :contentReference[oaicite:7]{index=7}
-        dataset->putAndInsertUint16(DCM_BitsStored, 16);     // 有效位：16 :contentReference[oaicite:8]{index=8}
-        dataset->putAndInsertUint16(DCM_HighBit,
-                                    15);  // HighBit = BitsStored - 1 = 15 :contentReference[oaicite:9]{index=9}
-        dataset->putAndInsertUint16(DCM_PixelRepresentation, 0);  // 0 = 无符号整数
-        dataset->putAndInsertString(DCM_WindowCenter, std::to_string(windowCenter).c_str());
-        dataset->putAndInsertString(DCM_WindowWidth, std::to_string(windowWidth).c_str());
-        // 位置和方向
-        char imagePos[64];
-        sprintf(imagePos, "0\\0\\%.6f", z * spacing[2]);
-        dataset->putAndInsertString(DCM_ImagePositionPatient, imagePos);
-        dataset->putAndInsertString(DCM_ImageOrientationPatient, "1\\0\\0\\0\\1\\0");
-        dataset->putAndInsertString(DCM_SliceThickness, std::to_string(spacing[2]).c_str());
-        dataset->putAndInsertString(DCM_PixelSpacing,
-                                    (std::to_string(spacing[1]) + "\\" + std::to_string(spacing[0])).c_str());
-
-        // 3.8 插入像素数据
-        dataset->putAndInsertUint16Array(
-            DCM_PixelData, slicePtr,
-            static_cast<unsigned long>(dims[0]) * dims[1]  // PixelData 数量 = Rows × Columns
-        );
-
-        // 3.9 生成并校验文件元信息头，然后写出 DICOM 文件
-        fileformat.validateMetaInfo(EXS_LittleEndianExplicit);  // 自动填充 (0002,0002),(0002,0003),(0002,0010) 等标记
-        QString fn = dirQt + QString("/slice%1.dcm").arg(z, 3, 10, QChar('0'));
-        fileformat.saveFile(fn.toStdString().c_str(), EXS_LittleEndianExplicit);
+        if (!ok)
+        {
+            QMessageBox::warning(this, QString::fromUtf8("导出失败"),
+                                 QString::fromUtf8("写入文件失败：%1\n错误信息：%2").arg(fileName, error));
+            return;
+        }
     }
+
+    QMessageBox::information(this, QString::fromUtf8("导出完成"),
+                             QString::fromUtf8("已导出 %1 个 DICOM 文件到：\n%2")
+                                 .arg(dims[2])
+                                 .arg(exportDir.absolutePath()));
 }
 
 void MyVtkNew::SaveAsRawFile(vtkSmartPointer<vtkPolyData> polyData, const std::string& filename)
