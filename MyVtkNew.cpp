@@ -642,6 +642,7 @@ void MyVtkNew::InitializeVisualization(vtkSmartPointer<vtkImageData> imageData)
         planeWidget[i]->InteractionOn();
     }
     planeWidget[1]->SetLookupTable(planeWidget[0]->GetLookupTable());
+    planeWidget[1]->SetLookupTable(planeWidget[0]->GetLookupTable());
     planeWidget[2]->SetLookupTable(planeWidget[0]->GetLookupTable());
 
     // --- 阶段五：回调绑定（联动的核心） ---
